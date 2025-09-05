@@ -220,6 +220,8 @@ model user {
   foto_perfil                   Bytes?
   imagen_firma                  Bytes?
   config_tema                   String?                         @db.VarChar
+  password                      String                          @db.VarChar
+  refresh_token                 String?                         @db.VarChar
   activo                        Boolean?                        @default(true)
   created_by                    Int?
   add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
