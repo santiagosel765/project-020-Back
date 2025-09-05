@@ -1,0 +1,2 @@
+ALTER TABLE "user" ADD COLUMN "password" VARCHAR NOT NULL;
+ALTER TABLE "user" ADD COLUMN "refresh_token" VARCHAR;

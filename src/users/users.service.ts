@@ -1,21 +1,19 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { user } from 'generated/prisma';
-
+import { BcryptAdapter } from '../auth/adapters/bcrypt.adapter';
 
 @Injectable()
 export class UsersService {
-
-  constructor(private prisma: PrismaService) {} 
-
-  
+  constructor(private prisma: PrismaService) {}
 
   create(createUserDto: CreateUserDto) {
-    
-    return 'This action adds a new user';
+    const { password, ...rest } = createUserDto;
+    return this.prisma.user.create({
+      data: { ...rest, password: BcryptAdapter.hashPassword(password) },
+    });
   }
 
   async findAll(): Promise<user[]> {
@@ -23,14 +21,23 @@ export class UsersService {
   }
 
   findOne(id: number) {
-    return `This action returns a #${id} user`;
+    return this.prisma.user.findUnique({ where: { id } });
   }
 
   update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
+    return this.prisma.user.update({ where: { id }, data: updateUserDto });
   }
 
   remove(id: number) {
-    return `This action removes a #${id} user`;
+    return this.prisma.user.delete({ where: { id } });
+  }
+
+  async me(id: number) {
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        rol_usuario: { include: { rol: true } },
+      },
+    });
   }
 }
