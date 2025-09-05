@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model auditoria {
+  id          Int       @id @default(autoincrement())
+  user_id     Int
+  entidad     String    @db.VarChar
+  entidad_id  Int
+  accion      String    @db.VarChar
+  descripcion String?   @db.VarChar
+  add_date    DateTime? @default(now()) @db.Timestamp(6)
+  user        user      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model cuadro_firma {
+  id                            Int                             @id @default(autoincrement())
+  titulo                        String                          @db.VarChar
+  descripcion                   String?
+  version                       String?                         @db.VarChar
+  codigo                        String?                         @unique @db.VarChar
+  pdf                           Bytes?
+  empresa_id                    Int?
+  created_by                    Int?
+  estado_firma_id               Int?
+  plantilla_id                  Int?
+  add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
+  updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
+  user                          user?                           @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuadro_firma_created_by")
+  empresa                       empresa?                        @relation(fields: [empresa_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuadro_firma_empresa")
+  estado_firma                  estado_firma?                   @relation(fields: [estado_firma_id], references: [id], onUpdate: NoAction, map: "fk_cuadro_firma_estado")
+  plantilla                     plantilla?                      @relation(fields: [plantilla_id], references: [id], onUpdate: NoAction, map: "fk_cuadro_firma_plantilla")
+  cuadro_firma_estado_historial cuadro_firma_estado_historial[]
+  cuadro_firma_user             cuadro_firma_user[]
+  documento                     documento[]
+}
+
+model cuadro_firma_estado_historial {
+  id                Int          @id @default(autoincrement())
+  cuadro_firma_id   Int
+  estado_firma_id   Int
+  observaciones     String?
+  user_id           Int
+  fecha_observacion DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?    @default(now()) @db.Timestamp(6)
+  cuadro_firma      cuadro_firma @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  estado_firma      estado_firma @relation(fields: [estado_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user              user         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model cuadro_firma_user {
+  cuadro_firma_id       Int
+  user_id               Int
+  responsabilidad_id    Int?
+  cuadro_firma          cuadro_firma           @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  responsabilidad_firma responsabilidad_firma? @relation(fields: [responsabilidad_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user                  user                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([cuadro_firma_id, user_id])
+}
+
+model documento {
+  id              Int          @id @default(autoincrement())
+  cuadro_firma_id Int
+  nombre_archivo  String       @db.VarChar
+  descripcion     String?
+  pdf             Bytes?
+  created_by      Int?
+  add_date        DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at      DateTime?    @default(now()) @db.Timestamp(6)
+  user            user?        @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_documento_created_by")
+  cuadro_firma    cuadro_firma @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_documento_cuadro_firma")
+}
+
+model empresa {
+  id           Int            @id @default(autoincrement())
+  nombre       String         @unique @db.VarChar
+  descripcion  String?
+  activo       Boolean?       @default(true)
+  add_date     DateTime?      @default(now()) @db.Timestamp(6)
+  updated_at   DateTime?      @default(now()) @db.Timestamp(6)
+  cuadro_firma cuadro_firma[]
+  plantilla    plantilla[]
+}
+
+model estado_firma {
+  id                            Int                             @id @default(autoincrement())
+  nombre                        String                          @unique @db.VarChar
+  descripcion                   String?
+  add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
+  updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
+  cuadro_firma                  cuadro_firma[]
+  cuadro_firma_estado_historial cuadro_firma_estado_historial[]
+}
+
+model gerencia {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique @db.VarChar
+  descripcion String?
+  activo      Boolean? @default(true)
+  user        user[]
+}
+
+model notificacion {
+  id                Int                 @id @default(autoincrement())
+  titulo            String              @db.VarChar
+  contenido         String
+  tipo              String?             @db.VarChar
+  referencia_id     Int?
+  referencia_tipo   String?             @db.VarChar
+  add_date          DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?           @default(now()) @db.Timestamp(6)
+  notificacion_user notificacion_user[]
+}
+
+model notificacion_user {
+  notificacion_id Int
+  user_id         Int
+  fue_leido       Boolean?     @default(false)
+  fecha_leido     DateTime?    @db.Timestamp(6)
+  notificacion    notificacion @relation(fields: [notificacion_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user            user         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([notificacion_id, user_id])
+}
+
+model pagina {
+  id          Int          @id @default(autoincrement())
+  nombre      String       @unique @db.VarChar
+  descripcion String?
+  url         String       @db.VarChar
+  activo      Boolean?     @default(true)
+  add_date    DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at  DateTime?    @default(now()) @db.Timestamp(6)
+  pagina_rol  pagina_rol[]
+}
+
+model pagina_rol {
+  pagina_id Int
+  rol_id    Int
+  pagina    pagina @relation(fields: [pagina_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rol       rol    @relation(fields: [rol_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([pagina_id, rol_id])
+}
+
+model plantilla {
+  id           Int            @id @default(autoincrement())
+  nombre       String         @db.VarChar
+  color        String?        @db.VarChar
+  descripcion  String?
+  plantilla    Bytes?
+  empresa_id   Int
+  activo       Boolean?       @default(true)
+  add_date     DateTime?      @default(now()) @db.Timestamp(6)
+  updated_at   DateTime?      @default(now()) @db.Timestamp(6)
+  cuadro_firma cuadro_firma[]
+  empresa      empresa        @relation(fields: [empresa_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model posicion {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique @db.VarChar
+  descripcion String?
+  activo      Boolean? @default(true)
+  user        user[]
+}
+
+model responsabilidad_firma {
+  id                Int                 @id @default(autoincrement())
+  nombre            String              @unique @db.VarChar
+  descripcion       String?
+  activo            Boolean?            @default(true)
+  add_date          DateTime?           @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?           @default(now()) @db.Timestamp(6)
+  cuadro_firma_user cuadro_firma_user[]
+}
+
+model rol {
+  id          Int           @id @default(autoincrement())
+  nombre      String        @unique @db.VarChar
+  descripcion String?       @db.VarChar
+  activo      Boolean?      @default(true)
+  created_by  Int?
+  add_date    DateTime?     @default(now()) @db.Timestamp(6)
+  updated_at  DateTime?     @default(now()) @db.Timestamp(6)
+  pagina_rol  pagina_rol[]
+  user        user?         @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_rol_created_by")
+  rol_usuario rol_usuario[]
+}
+
+model rol_usuario {
+  user_id Int
+  rol_id  Int
+  rol     rol  @relation(fields: [rol_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user    user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, rol_id])
+}
+
+model user {
+  id                            Int                             @id @default(autoincrement())
+  primer_nombre                 String                          @db.VarChar
+  segundo_name                  String?                         @db.VarChar
+  tercer_nombre                 String?                         @db.VarChar
+  primer_apellido               String                          @db.VarChar
+  segundo_apellido              String?                         @db.VarChar
+  apellido_casada               String?                         @db.VarChar
+  codigo_empleado               String                          @unique @db.VarChar
+  posicion_id                   Int?
+  gerencia_id                   Int?
+  correo_institucional          String                          @unique @db.VarChar
+  telefono                      String?                         @db.VarChar
+  foto_perfil                   Bytes?
+  imagen_firma                  Bytes?
+  config_tema                   String?                         @db.VarChar
+  activo                        Boolean?                        @default(true)
+  created_by                    Int?
+  add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
+  updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
+  auditoria                     auditoria[]
+  cuadro_firma                  cuadro_firma[]
+  cuadro_firma_estado_historial cuadro_firma_estado_historial[]
+  cuadro_firma_user             cuadro_firma_user[]
+  documento                     documento[]
+  notificacion_user             notificacion_user[]
+  rol                           rol[]
+  rol_usuario                   rol_usuario[]
+  user                          user?                           @relation("userTouser", fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user_created_by")
+  other_user                    user[]                          @relation("userTouser")
+  gerencia                      gerencia?                       @relation(fields: [gerencia_id], references: [id], onUpdate: NoAction, map: "fk_user_gerencia")
+  posicion                      posicion?                       @relation(fields: [posicion_id], references: [id], onUpdate: NoAction, map: "fk_user_posicion")
+}
