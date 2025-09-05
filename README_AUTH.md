@@ -16,10 +16,15 @@ OPENAI_API_KEY=dummy
 OPENAI_MODEL=dummy
 ```
 
-## Seed
+## Setup
+
+Run these commands after cloning the repo:
 
 ```
-npx ts-node prisma/seed.ts
+npx prisma generate
+npx prisma migrate dev
+npx prisma db seed
+yarn start:dev
 ```
 
 ## Example curl
