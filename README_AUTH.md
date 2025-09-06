@@ -5,9 +5,9 @@
 Set these variables in your `.env` file:
 
 ```
-PORT=3000
-API_PREFIX=api
-CORS_ORIGIN=http://localhost:9002
+PORT=3200
+API_PREFIX=/api/v1
+CORS_ORIGIN=http://localhost:3000
 DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DB
 JWT_ACCESS_SECRET=change_me
 JWT_REFRESH_SECRET=change_me_too
@@ -32,22 +32,26 @@ yarn start:dev
 
 ```
 # signup
-curl -X POST http://localhost:3000/api/v1/auth/signup \
+curl -X POST http://localhost:3200/api/v1/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{"primer_nombre":"Admin","primer_apellido":"User","correo_institucional":"admin@local","codigo_empleado":"ADMIN","password":"Admin!123"}'
 
 # login (returns access token and sets refresh cookie)
-curl -i -X POST http://localhost:3000/api/auth/login \
+curl -i -X POST http://localhost:3200/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"user":"admin@local","password":"Admin!123"}'
+  -d '{"email":"admin@local","password":"Admin!123"}'
 
 # refresh (send stored cookie, no body)
-curl -i -X POST http://localhost:3000/api/auth/refresh \
+curl -i -X POST http://localhost:3200/api/v1/auth/refresh \
   --cookie "__Host-refresh=<refresh_token_from_cookie>"
 
 # current user
-curl http://localhost:3000/api/users/me \
+curl http://localhost:3200/api/v1/users/me \
   -H 'Authorization: Bearer <access_token>'
+
+# logout (clears refresh cookie)
+curl -i -X POST http://localhost:3200/api/v1/auth/logout \
+  --cookie "__Host-refresh=<refresh_token_from_cookie>"
 ```
 
 ## Testing

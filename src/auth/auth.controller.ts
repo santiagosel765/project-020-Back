@@ -1,8 +1,9 @@
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Post, Req, Res, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { LoginDto } from './dto/login-dto';
-import { Request, Response } from 'express';
+import { Request, type Response } from 'express';
+import { envs } from '../config/envs';
 
 type RequestWithCookies = Request & { cookies: Record<string, string> };
 
@@ -23,9 +24,9 @@ export class AuthController {
     const tokens = await this.authService.login(loginDto);
     res.cookie('__Host-refresh', tokens.refresh_token, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      path: '/auth/refresh',
+      path: `${envs.apiPrefix}/auth/refresh`,
     });
     return { access_token: tokens.access_token };
   }
@@ -39,10 +40,21 @@ export class AuthController {
     const tokens = await this.authService.refreshToken(refreshToken);
     res.cookie('__Host-refresh', tokens.refresh_token, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      path: '/auth/refresh',
+      path: `${envs.apiPrefix}/auth/refresh`,
     });
     return { access_token: tokens.access_token };
+  }
+
+  @Post('logout')
+  @HttpCode(204)
+  logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie('__Host-refresh', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: `${envs.apiPrefix}/auth/refresh`,
+    });
   }
 }
