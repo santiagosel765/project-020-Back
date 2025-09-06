@@ -22,7 +22,11 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors();
+  app.enableCors({
+    origin: ['http://localhost:9002', 'http://127.0.0.1:9002'],
+    credentials: true,
+  });
+
 
   await app.listen(envs.port ?? 3000);
   logger.log(`Server running on port ${ envs.port }`);
