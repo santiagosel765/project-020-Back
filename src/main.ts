@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
 import { envs } from './config/envs';
-import { cookieParser } from './common/cookie-parser';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -23,14 +23,14 @@ async function bootstrap() {
     }),
   );
 
-  app.use(cookieParser);
+  app.use(cookieParser());
 
   app.enableCors({
     origin: envs.corsOrigin,
     credentials: true,
   });
 
-  await app.listen(envs.port ?? 3000);
+  await app.listen(envs.port);
   logger.log(`Server running on port ${envs.port}`);
 }
 bootstrap();

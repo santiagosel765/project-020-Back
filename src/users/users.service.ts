@@ -33,12 +33,18 @@ export class UsersService {
   }
 
   async me(id: number) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
         rol_usuario: { include: { rol: true } },
       },
     });
+    if (!user) return null;
+    const roles = user.rol_usuario?.map((r: any) => r.rol.nombre) ?? [];
+    return {
+      id: user.id,
+      email: user.correo_institucional,
+      roles,
+    };
   }
-  
 }

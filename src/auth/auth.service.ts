@@ -35,12 +35,9 @@ export class AuthService {
     return tokens;
   }
 
-  async login({ user, password }: LoginDto) {
-    const where = user.includes('@')
-      ? { correo_institucional: user }
-      : { codigo_empleado: user };
+  async login({ email, password }: LoginDto) {
     const found = await this.prisma.user.findUnique({
-      where,
+      where: { correo_institucional: email },
       include: { rol_usuario: { include: { rol: true } } },
     });
     if (!found) throw new UnauthorizedException('Invalid credentials');

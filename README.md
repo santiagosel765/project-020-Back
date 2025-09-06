@@ -27,9 +27,9 @@
    ```
 2. Edita el archivo `.env` y configura las variables según tu entorno:
 
-   - `PORT`: Puerto en el que corre el servidor (por defecto: 3000)
-   - `API_PREFIX`: Prefijo global para las rutas de la API (por defecto: api)
-   - `CORS_ORIGIN`: Orígenes permitidos separados por coma
+   - `PORT`: Puerto en el que corre el servidor (por defecto: 3200)
+   - `API_PREFIX`: Prefijo global para las rutas de la API (por defecto: /api/v1)
+   - `CORS_ORIGIN`: Orígenes permitidos separados por coma (por defecto: http://localhost:3000)
    - `DATABASE_URL`: URL de conexión a la base de datos PostgreSQL
    - `OPENAI_API_KEY`: Clave de API para OpenAI
    - `OPENAI_MODEL`: Modelo de OpenAI a utilizar
