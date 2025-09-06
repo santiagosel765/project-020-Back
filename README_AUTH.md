@@ -6,12 +6,13 @@ Set these variables in your `.env` file:
 
 ```
 PORT=3000
-GLOBAL_PREFIX=api/v1
+API_PREFIX=api
+CORS_ORIGIN=http://localhost:9002
 DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DB
-JWT_SECRET=change_me
+JWT_ACCESS_SECRET=change_me
 JWT_REFRESH_SECRET=change_me_too
-JWT_EXPIRATION=900        # 15 minutes
-JWT_REFRESH_EXPIRATION=604800 # 7 days
+JWT_ACCESS_EXPIRATION=900        # 15 minutes
+JWT_REFRESH_EXPIRATION=604800    # 7 days
 OPENAI_API_KEY=dummy
 OPENAI_MODEL=dummy
 ```
@@ -35,18 +36,17 @@ curl -X POST http://localhost:3000/api/v1/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{"primer_nombre":"Admin","primer_apellido":"User","correo_institucional":"admin@local","codigo_empleado":"ADMIN","password":"Admin!123"}'
 
-# login
-curl -X POST http://localhost:3000/api/v1/auth/login \
+# login (returns access token and sets refresh cookie)
+curl -i -X POST http://localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"user":"admin@local","password":"Admin!123"}'
 
-# refresh
-curl -X POST http://localhost:3000/api/v1/auth/refresh \
-  -H 'Content-Type: application/json' \
-  -d '{"refresh_token":"<token>"}'
+# refresh (send stored cookie, no body)
+curl -i -X POST http://localhost:3000/api/auth/refresh \
+  --cookie "__Host-refresh=<refresh_token_from_cookie>"
 
 # current user
-curl http://localhost:3000/api/v1/users/me \
+curl http://localhost:3000/api/users/me \
   -H 'Authorization: Bearer <access_token>'
 ```
 

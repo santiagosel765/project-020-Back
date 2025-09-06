@@ -9,7 +9,6 @@ import { LoginDto } from './dto/login-dto';
 import { BcryptAdapter } from './adapters/bcrypt.adapter';
 import { signJwt, verifyJwt } from './utils/jwt.util';
 import { envs } from '../config/envs';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @Injectable()
 export class AuthService {
@@ -52,7 +51,9 @@ export class AuthService {
     return tokens;
   }
 
-  async refreshToken({ refresh_token }: RefreshTokenDto) {
+  async refreshToken(refresh_token: string) {
+    if (!refresh_token)
+      throw new UnauthorizedException('No refresh token provided');
     const payload = verifyJwt(refresh_token, envs.jwtRefreshSecret);
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -71,8 +72,8 @@ export class AuthService {
     const roles = user.rol_usuario?.map((r: any) => r.rol.nombre) ?? [];
     const payload = { sub: user.id, email: user.correo_institucional, roles };
     const access_token = signJwt(payload, {
-      secret: envs.jwtSecret,
-      expiresIn: envs.jwtExpiration,
+      secret: envs.jwtAccessSecret,
+      expiresIn: envs.jwtAccessExpiration,
     });
     const refresh_token = signJwt(payload, {
       secret: envs.jwtRefreshSecret,

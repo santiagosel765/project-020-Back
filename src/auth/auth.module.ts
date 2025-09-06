@@ -12,16 +12,15 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 @Module({
   imports: [
     PrismaModule,
-    ConfigModule, // para leer JWT_SECRET / expiración
+    ConfigModule, // para leer JWT_ACCESS_SECRET / expiración
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
+        secret: config.get<string>('JWT_ACCESS_SECRET'),
         signOptions: {
-          // puedes usar segundos o string: '900s'
-          expiresIn: config.get<string>('JWT_EXPIRATION') ?? '900s',
+          expiresIn: config.get<string>('JWT_ACCESS_EXPIRATION') ?? '900s',
         },
       }),
     }),

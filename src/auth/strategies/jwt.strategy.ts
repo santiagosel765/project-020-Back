@@ -11,13 +11,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      // ✅ evita undefined (y el error de tipos)
-      secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+      secretOrKey: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
     });
   }
 
   async validate(payload: JwtPayload) {
-    // Puedes devolver { sub, ... } o { userId, ... } pero sé consistente con el controller
-    return { sub: payload.sub, email: payload.email, roles: payload.roles ?? [] };
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      roles: payload.roles ?? [],
+    };
   }
 }

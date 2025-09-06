@@ -21,14 +21,15 @@
 
 ## Variables de entorno
 
-1. Copia el archivo `.template.env` y renómbralo a `.env`:
+1. Copia el archivo `env.example` y renómbralo a `.env`:
    ```bash
-   cp .template.env .env
+   cp env.example .env
    ```
 2. Edita el archivo `.env` y configura las variables según tu entorno:
 
-   - `PORT`: Puerto en el que corre el servidor (por defecto: 3200)
-   - `GLOBAL_PREFIX`: Prefijo global para las rutas de la API (por defecto: api/v1)
+   - `PORT`: Puerto en el que corre el servidor (por defecto: 3000)
+   - `API_PREFIX`: Prefijo global para las rutas de la API (por defecto: api)
+   - `CORS_ORIGIN`: Orígenes permitidos separados por coma
    - `DATABASE_URL`: URL de conexión a la base de datos PostgreSQL
    - `OPENAI_API_KEY`: Clave de API para OpenAI
    - `OPENAI_MODEL`: Modelo de OpenAI a utilizar
