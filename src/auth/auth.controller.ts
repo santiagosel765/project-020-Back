@@ -37,6 +37,7 @@ export class AuthController {
     return { access_token: tokens.access_token };
   }
 
+  // Avoid rate limit when refreshing tokens
   @SkipThrottle()
   @Post('refresh')
   async refresh(
