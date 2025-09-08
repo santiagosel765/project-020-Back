@@ -1,4 +1,5 @@
 import { Body, Controller, Post, Req, Res, HttpCode } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { LoginDto } from './dto/login-dto';
@@ -36,6 +37,7 @@ export class AuthController {
     return { access_token: tokens.access_token };
   }
 
+  @SkipThrottle()
   @Post('refresh')
   async refresh(
     @Req() req: RequestWithCookies,

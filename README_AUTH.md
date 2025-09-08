@@ -2,7 +2,7 @@
 
 ## Environment variables
 
-Set these variables in your `.env` file:
+Set these variables in your `.env` file (see `env.example`):
 
 ```
 PORT=3200
@@ -31,29 +31,33 @@ npm run start:dev
 
 ## Cookies
 
-- Desarrollo: cookie `refresh_token`, secure=false, path=`/api/v1/auth/refresh`.
-- Producción: cookie `__Host-refresh`, secure=true, path=`/` (regla del prefijo `__Host-`).
+- **Desarrollo**
+  - nombre: `refresh_token`
+  - `secure=false`, `path=/api/v1/auth/refresh`
+- **Producción**
+  - nombre: `__Host-refresh`
+  - `secure=true`, `path=/`
 
 ## Example curl
 
 ```
 API=http://localhost:3200/api/v1
-# nombre de la cookie según entorno
-# dev: refresh_token, prod: __Host-refresh
-COOKIE_NAME=refresh_token
+REM COOKIE_NAME=refresh_token en dev, __Host-refresh en prod
 
-# login (recibe access y setea cookie refresh)
-curl -i -X POST %API%/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@local\",\"password\":\"Admin!123\"}"
+REM login (recibe access y setea cookie refresh)
+curl.exe -i -X POST %API%/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@local\",\"password\":\"Admin!123\"}"
 
-# refresh (usa cookie)
-curl -i -X POST %API%/auth/refresh --cookie "$COOKIE_NAME=<token>"
+REM refresh (usa cookie)
+curl.exe -i -X POST %API%/auth/refresh --cookie "%COOKIE_NAME%=<token>"
 
-# me (con Authorization: Bearer <access>)
-curl -i %API%/users/me -H "Authorization: Bearer <access_token>"
+REM me (con Authorization: Bearer <access>)
+curl.exe -i %API%/users/me -H "Authorization: Bearer <access_token>"
 
-# logout (borra cookie)
-curl -i -X POST %API%/auth/logout --cookie "$COOKIE_NAME=<token>"
+REM logout (borra cookie)
+curl.exe -i -X POST %API%/auth/logout --cookie "%COOKIE_NAME%=<token>"
 ```
+
+> Nota: En Windows el warning de `pdfjs-dist` sobre canvas se puede ignorar en desarrollo. Para producción, si se requiere render o medición avanzada, instala `canvas` 2.x y su toolchain.
 
 ## Testing
 
