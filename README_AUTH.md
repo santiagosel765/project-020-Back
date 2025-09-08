@@ -29,22 +29,30 @@ npx prisma db seed
 npm run start:dev
 ```
 
+## Cookies
+
+- Desarrollo: cookie `refresh_token`, secure=false, path=`/api/v1/auth/refresh`.
+- Producción: cookie `__Host-refresh`, secure=true, path=`/` (regla del prefijo `__Host-`).
+
 ## Example curl
 
 ```
 API=http://localhost:3200/api/v1
+# nombre de la cookie según entorno
+# dev: refresh_token, prod: __Host-refresh
+COOKIE_NAME=refresh_token
 
 # login (recibe access y setea cookie refresh)
 curl -i -X POST %API%/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@local\",\"password\":\"Admin!123\"}"
 
 # refresh (usa cookie)
-curl -i -X POST %API%/auth/refresh --cookie "__Host-refresh=<token>"
+curl -i -X POST %API%/auth/refresh --cookie "$COOKIE_NAME=<token>"
 
 # me (con Authorization: Bearer <access>)
 curl -i %API%/users/me -H "Authorization: Bearer <access_token>"
 
 # logout (borra cookie)
-curl -i -X POST %API%/auth/logout --cookie "__Host-refresh=<token>"
+curl -i -X POST %API%/auth/logout --cookie "$COOKIE_NAME=<token>"
 ```
 
 ## Testing
