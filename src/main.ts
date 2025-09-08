@@ -2,7 +2,9 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { envs } from './config/envs';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -25,11 +27,24 @@ async function bootstrap() {
   );
 
   app.use(cookieParser());
+  app.use(helmet());
 
   app.enableCors({
     origin: envs.corsOrigin,
     credentials: true,
   });
+
+  if (envs.nodeEnv !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('GenesisSign API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, document, {
+      useGlobalPrefix: true,
+    });
+  }
 
   await app.listen(envs.port);
   logger.log(`Server running on port ${envs.port}`);

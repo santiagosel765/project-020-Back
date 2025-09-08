@@ -98,6 +98,10 @@ Asegúrate de agregar y configurar estas variables en tu archivo `.env` antes de
   npm run start:prod
   ```
 
+## Swagger
+
+En desarrollo la documentación se expone en `http://localhost:3200/api/v1/docs`.
+
 ## Scripts útiles
 
 - `npm run lint`: Formatea y corrige el código.
