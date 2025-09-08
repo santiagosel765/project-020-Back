@@ -24,7 +24,7 @@ export class AuthController {
     const tokens = await this.authService.login(loginDto);
     res.cookie('__Host-refresh', tokens.refresh_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: envs.nodeEnv === 'production',
       sameSite: 'strict',
       path: `${envs.apiPrefix}/auth/refresh`,
     });
@@ -40,7 +40,7 @@ export class AuthController {
     const tokens = await this.authService.refreshToken(refreshToken);
     res.cookie('__Host-refresh', tokens.refresh_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: envs.nodeEnv === 'production',
       sameSite: 'strict',
       path: `${envs.apiPrefix}/auth/refresh`,
     });
@@ -52,7 +52,7 @@ export class AuthController {
   logout(@Res({ passthrough: true }) res: Response) {
     res.clearCookie('__Host-refresh', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: envs.nodeEnv === 'production',
       sameSite: 'strict',
       path: `${envs.apiPrefix}/auth/refresh`,
     });

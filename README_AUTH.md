@@ -7,14 +7,15 @@ Set these variables in your `.env` file:
 ```
 PORT=3200
 API_PREFIX=/api/v1
-CORS_ORIGIN=http://localhost:3000
-DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DB
+CORS_ORIGIN=http://localhost:9002
+NODE_ENV=development
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME
 JWT_ACCESS_SECRET=change_me
 JWT_REFRESH_SECRET=change_me_too
 JWT_ACCESS_EXPIRATION=900        # 15 minutes
 JWT_REFRESH_EXPIRATION=604800    # 7 days
-OPENAI_API_KEY=dummy
-OPENAI_MODEL=dummy
+OPENAI_API_KEY=
+OPENAI_MODEL=
 ```
 
 ## Setup
@@ -25,33 +26,25 @@ Run these commands after cloning the repo:
 npx prisma generate
 npx prisma migrate dev
 npx prisma db seed
-yarn start:dev
+npm run start:dev
 ```
 
 ## Example curl
 
 ```
-# signup
-curl -X POST http://localhost:3200/api/v1/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"primer_nombre":"Admin","primer_apellido":"User","correo_institucional":"admin@local","codigo_empleado":"ADMIN","password":"Admin!123"}'
+API=http://localhost:3200/api/v1
 
-# login (returns access token and sets refresh cookie)
-curl -i -X POST http://localhost:3200/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@local","password":"Admin!123"}'
+# login (recibe access y setea cookie refresh)
+curl -i -X POST %API%/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@local\",\"password\":\"Admin!123\"}"
 
-# refresh (send stored cookie, no body)
-curl -i -X POST http://localhost:3200/api/v1/auth/refresh \
-  --cookie "__Host-refresh=<refresh_token_from_cookie>"
+# refresh (usa cookie)
+curl -i -X POST %API%/auth/refresh --cookie "__Host-refresh=<token>"
 
-# current user
-curl http://localhost:3200/api/v1/users/me \
-  -H 'Authorization: Bearer <access_token>'
+# me (con Authorization: Bearer <access>)
+curl -i %API%/users/me -H "Authorization: Bearer <access_token>"
 
-# logout (clears refresh cookie)
-curl -i -X POST http://localhost:3200/api/v1/auth/logout \
-  --cookie "__Host-refresh=<refresh_token_from_cookie>"
+# logout (borra cookie)
+curl -i -X POST %API%/auth/logout --cookie "__Host-refresh=<token>"
 ```
 
 ## Testing
