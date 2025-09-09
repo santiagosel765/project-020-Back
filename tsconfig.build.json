@@ -2,7 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "baseUrl": ".",
+    "paths": {
+      "generated/*": ["generated/*"]
+    }
   },
   "include": ["src/**/*.ts"],  
   "exclude": [

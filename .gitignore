@@ -184,7 +184,7 @@ dist
 
 tmp/
 test/
-generated/prisma
+generated/
 
 prisma/.DS_Store
 
