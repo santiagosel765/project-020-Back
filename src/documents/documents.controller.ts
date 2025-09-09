@@ -8,6 +8,9 @@ import {
   Delete,
   UseInterceptors,
   UploadedFiles,
+  HttpStatus,
+  Logger,
+  HttpException,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -17,12 +20,19 @@ import {
   FilesInterceptor,
 } from '@nestjs/platform-express';
 import { SignDocumentDto } from './dto/sign-document.dto';
+import { CreatePlantillaDto } from './dto/create-plantilla.dto';
+import { CreateCuadroFirmaDto } from './dto/create-cuadro-firma.dto';
+import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
+import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 
 @Controller('documents')
 export class DocumentsController {
+  logger: Logger = new Logger(DocumentsController.name);
+
   constructor(private readonly documentsService: DocumentsService) {}
 
   @Post()
+  @UseInterceptors(FilesInterceptor('files', 1))
   create(@Body() createDocumentDto: CreateDocumentDto) {
     return this.documentsService.create(createDocumentDto);
   }
@@ -40,9 +50,7 @@ export class DocumentsController {
   @Post('analyze-pdf-test')
   @UseInterceptors(FilesInterceptor('files', 1))
   analyzePDFTest(@UploadedFiles() files: Express.Multer.File[]) {
-    return this.documentsService.analyzePDFTest(
-      files[0].buffer,
-    );
+    return this.documentsService.analyzePDFTest(files[0].buffer);
   }
 
   /**
@@ -106,25 +114,70 @@ export class DocumentsController {
     return this.documentsService.multipleSignDocumentTest(dto);
   }
 
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.documentsService.findOne(+id);
+  @Post('plantilla')
+  generarPlantilla(@Body() createPlantillaDto: CreatePlantillaDto) {
+    return this.documentsService.generarPlantilla(createPlantillaDto);
   }
 
-  @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() updateDocumentDto: UpdateDocumentDto,
+  @Post('cuadro-firmas')
+  async guardarCuadroFirmas(
+    @Body() createCuadroFirmaDto: CreateCuadroFirmaDto,
   ) {
-    return this.documentsService.update(+id, updateDocumentDto);
+    // return createCuadroFirmaDto;
+    const cuadroFirmaDB =
+      await this.documentsService.guardarCuadroFirmas(createCuadroFirmaDto);
+
+    if (!cuadroFirmaDB) {
+      throw new HttpException(
+        `Problemas al generar cuadro de firmas`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
+      cuadroFirmaId: cuadroFirmaDB.id,
+      estadoFirmaId: 4,
+      userId: createCuadroFirmaDto.createdBy,
+      observaciones: 'Cuadro de firmas generado',
+    };
+
+    const registroHistorialDB = await this.agregarHistorialCuadroFirma(
+      addHistorialCuadroFirmaDto,
+    );
+
+    if (!registroHistorialDB) {
+      this.logger.error(
+        `Problemas al crear registro en historial para cuadro de firmas con ID "${cuadroFirmaDB.id}"`,
+      );
+    }
+    return {
+      status: HttpStatus.CREATED,
+      data: "Cuadro de firmas generado exitosamente"
+    };
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.documentsService.remove(+id);
+  @Post('cuadro-firmas/historial')
+  async agregarHistorialCuadroFirma(
+    @Body() addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto,
+  ) {
+    const registroHistorialDB =
+      await this.documentsService.agregarHistorialCuadroFirma(
+        addHistorialCuadroFirmaDto,
+      );
+
+    return {
+      status: HttpStatus.CREATED,
+      data: {
+        registro: registroHistorialDB,
+      },
+    };
+  }
+
+  @Patch('cuadro-firmas/:id')
+  updateCuadroFirmas(
+    @Param('id') id: string,
+    @Body() updateCuadroFirmaDto: UpdateCuadroFirmaDto,
+  ) {
+    return this.documentsService.updateCuadroFirmas(+id, updateCuadroFirmaDto);
   }
 }
-
-
-

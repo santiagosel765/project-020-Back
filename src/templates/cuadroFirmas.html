@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>PROTOCOLO DE INDUCCIÓN Y ACOMPAÑAMIENTO PARA PROMOTORES BTL</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            color: #222;
+            margin: 0 20px 0 20px;
+        }
+
+        .content {
+            flex: 1 0 auto;
+            margin-top: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .header-table {
+            width: 85%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .header-table td,
+        .header-table th {
+            border: 1px solid #888;
+            padding: 4px 8px;
+            vertical-align: middle;
+            font-size: 12px;
+        }
+
+        .header-logo {
+            width: 100px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .header-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 15px;
+            line-height: 1.2;
+        }
+
+        .title-text {
+            text-wrap: wrap;
+        }
+
+        .header-meta {
+            width: 80px;
+            font-size: 11px;
+            background: #fff;
+        }
+
+        .header-meta-value {
+            width: 80px;
+            font-size: 11px;
+            background: #ffff;
+        }
+
+        .header-meta-label {
+            font-weight: bold;
+            font-size: 11px;
+            color: #222;
+        }
+
+        .header-meta-value {
+            font-size: 11px;
+            color: #222;
+        }
+
+        .main-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 18px;
+            margin-top: 10px;
+        }
+
+        .firmas-table {
+            width: 85%;
+            max-width: 900px;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .firmas-table th,
+        .firmas-table td {
+            border: 2px solid black;
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .firmas-table th {
+            background: [COLOR];
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .tr-firmas td {
+            max-width: 120px;
+            overflow-wrap: break-word;
+            font-size: 10px;
+        }
+
+        .firmas-table .row-label {
+            background: [COLOR];
+            color: #fff;
+            font-weight: bold;
+            text-align: left;
+            padding-left: 8px;
+            width: 110px;
+        }
+
+        .firmas-table td {
+            background: #fff;
+        }
+
+        .firmas-table tr {
+            height: 38px;
+        }
+
+        .firmas-table .td-firma {
+            height: 60px;
+            min-width: 200px;
+        }
+
+        .footer {
+            flex-shrink: 0;
+            margin-top: 40px;
+            text-align: center;
+            font-size: 11px;
+            color: #444;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .logo-img {
+            width: 90px;
+            margin: 0 auto;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="content">
+        <table class="header-table">
+            <tr>
+                <td class="header-logo" rowspan="3">
+                
+                    <img src="[LOGO_URL]" alt="Logo Empresa" class="logo-img">
+                </td>
+                <td class="header-title" rowspan="2" colspan="2">
+                    <span class="title-text">
+                        [TITULO]
+                    </span>
+                </td>
+                <td class="header-meta">
+                    <div class="header-meta-label">Fecha de<br>Versión:</div>
+                </td>
+                <td class="header-meta-value">
+                    <div class="header-meta-value">[FECHA]</div>
+                </td>
+            </tr>
+            <tr>
+                <td class="header-meta">
+                    <div class="header-meta-label">Código:</div>
+                </td>
+                <td class="header-meta-value">
+                    <div class="header-meta-value">[CODIGO]</div>
+                </td>
+            </tr>
+            <tr>
+                <td class="header-meta" colspan="2" style="text-align:center;">
+                    [DESCRIPCION]
+                </td>
+                <td class="header-meta">
+                    <div class="header-meta-label">Versión:</div>
+                </td>
+                <td class="header-meta-value">
+                    <div class="header-meta-value">[VERSION]</div>
+                </td>
+            </tr>
+        </table>
+
+        <div class="main-title">
+            [TITULO]
+        </div>
+
+        <table class="firmas-table">
+            <tr class="tr-firmas">
+                <th></th>
+                <th>Nombre</th>
+                <th>Puesto</th>
+                <th>Gerencia</th>
+                <th>Firma</th>
+                <th>Fecha</th>
+            </tr>
+            <tr class="tr-firmas">
+                <td class="row-label">Elaborado<br>por:</td>
+                <td>FIRMANTE_ELABORA</td>
+                <td>PUESTO_ELABORA</td>
+                <td>GERENCIA_ELABORA</td>
+                <td class="td-firma"></td>
+                <td>FECHA_ELABORA</td>
+            </tr>
+            [FILAS_REVISA]
+            [FILAS_APRUEBA]
+        </table>
+    </div>
+    <div class="footer">
+        El presente documento es válido con la página de firmas completa, la integridad y resguardo de este es
+        responsabilidad de la Gerencia Operativa de Calidad y Mejora Continua; la versión oficial se encuentra en la
+        zona de conocimiento, cualquier copia tiene únicamente fines de estudio.
+    </div>
+</body>
+
+</html>

@@ -9,6 +9,7 @@ import { PdfModule } from './pdf/pdf.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AiModule } from './ai/ai.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { AwsModule } from './aws/aws.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 @Module({
@@ -26,6 +27,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
     DocumentsModule,
     AiModule,
     PrismaModule,
+    AwsModule,
   ],
   controllers: [AppController],
   providers: [

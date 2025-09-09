@@ -30,9 +30,8 @@ export class AuthService {
         ...rest,
       },
     });
-    const tokens = this.generateTokens(user);
-    await this.saveRefreshToken(user.id, tokens.refresh_token);
-    return tokens;
+    
+    return this.generateTokens(user);
   }
 
   async login({ email, password }: LoginDto) {
@@ -41,28 +40,33 @@ export class AuthService {
       include: { rol_usuario: { include: { rol: true } } },
     });
     if (!found) throw new UnauthorizedException('Invalid credentials');
+
+    if (!found.password) throw new UnauthorizedException('Invalid credentials');
+
     const valid = BcryptAdapter.compareHash(password, found.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
-    const tokens = this.generateTokens(found);
-    await this.saveRefreshToken(found.id, tokens.refresh_token);
-    return tokens;
+
+    return this.generateTokens(found);
   }
 
   async refreshToken(refresh_token: string) {
     if (!refresh_token)
       throw new UnauthorizedException('No refresh token provided');
-    const payload = verifyJwt(refresh_token, envs.jwtRefreshSecret);
+
+    const payload = verifyJwt(refresh_token, envs.jwtRefreshSecret) as {
+      sub?: number;
+    };
+
+    if (!payload?.sub)
+      throw new UnauthorizedException('Invalid token payload');
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { rol_usuario: { include: { rol: true } } },
     });
-    if (!user || !user.refresh_token)
-      throw new UnauthorizedException('Invalid token');
-    const valid = user.refresh_token === refresh_token;
-    if (!valid) throw new UnauthorizedException('Invalid token');
-    const tokens = this.generateTokens(user);
-    await this.saveRefreshToken(user.id, tokens.refresh_token);
-    return tokens;
+    if (!user) throw new UnauthorizedException('User not found');
+
+    return this.generateTokens(user);
   }
 
   private generateTokens(user: any) {
@@ -79,10 +83,4 @@ export class AuthService {
     return { access_token, refresh_token };
   }
 
-  private async saveRefreshToken(userId: number, token: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refresh_token: token },
-    });
-  }
 }

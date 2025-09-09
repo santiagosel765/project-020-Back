@@ -23,4 +23,15 @@ export class AiService {
     }
   }
 
+  async summarizePDF( pdfContent: string ) {
+    for(const provider of this.providers) {
+      try {
+        const result = await provider.summarizePDF(pdfContent);
+        if(result) return result;
+      } catch (error) {
+        throw new Error(`Provider failed: ${error}`);
+      }
+    }
+  }
+
 }

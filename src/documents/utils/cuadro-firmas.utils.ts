@@ -1,0 +1,3 @@
+export const filaAprueba = `<tr class="tr-firmas"><td class="row-label"></td><td>FIRMANTE_APRUEBA</td><td>PUESTO_APRUEBA</td><td>GERENCIA_APRUEBA</td><td class="td-firma"></td><td>FECHA_APRUEBA</td></tr>`
+
+export const filaRevisa = `<tr class="tr-firmas"><td class="row-label"></td><td>FIRMANTE_REVISA</td><td>PUESTO_REVISA</td><td>GERENCIA_REVISA</td><td class="td-firma"></td><td>FECHA_REVISA</td></tr>`
