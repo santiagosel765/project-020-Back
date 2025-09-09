@@ -16,8 +16,9 @@
 
 2. Instala las dependencias:
    ```bash
-   npm install
+   yarn
    ```
+   > También puedes usar `npm install` si lo prefieres.
 
 ## Variables de entorno
 
@@ -48,8 +49,8 @@ Asegúrate de agregar y configurar estas variables en tu archivo `.env` antes de
 2. **Para generar el cliente Prisma y aplicar migraciones:**
 
    ```bash
-   npx prisma generate
-   npx prisma migrate dev
+   yarn db:generate
+   yarn db:migrate
    ```
 
    Puedes ver y editar el esquema en `prisma/schema.prisma`.
@@ -57,13 +58,13 @@ Asegúrate de agregar y configurar estas variables en tu archivo `.env` antes de
 3. **Para abrir Prisma Studio (UI para la base de datos):**
 
    ```bash
-   npx prisma studio
+   yarn prisma studio
    ```
 
 4. **Para importar el esquema de una base de datos existente (pull):**
 
    ```bash
-   npx prisma db pull
+   yarn prisma db pull
    ```
 
    Esto actualizará tu archivo `schema.prisma` con los modelos generados a partir de la base de datos actual.
@@ -71,17 +72,17 @@ Asegúrate de agregar y configurar estas variables en tu archivo `.env` antes de
 5. **Para generar los modelos a partir del esquema actualizado:**
 
    ```bash
-   npx prisma generate
+   yarn db:generate
    ```
 
 6. **Para crear y aplicar migraciones:**
    - Crea una nueva migración:
      ```bash
-     npx prisma migrate dev --name nombre_de_migracion
+     yarn prisma migrate dev --name nombre_de_migracion
      ```
    - Aplica migraciones pendientes en producción:
      ```bash
-     npx prisma migrate deploy
+     yarn db:deploy
      ```
 
 ## Correr la aplicación
@@ -89,13 +90,13 @@ Asegúrate de agregar y configurar estas variables en tu archivo `.env` antes de
 - En modo desarrollo (con recarga automática):
 
   ```bash
-  npm run start:dev
+  yarn start:dev
   ```
 
 - En modo producción:
   ```bash
-  npm run build
-  npm run start:prod
+  yarn build
+  yarn start:prod
   ```
 
 ## Swagger
@@ -104,8 +105,8 @@ En desarrollo la documentación se expone en `http://localhost:3200/api/v1/docs`
 
 ## Scripts útiles
 
-- `npm run lint`: Formatea y corrige el código.
-- `npm test`: Ejecuta los tests.
+- `yarn lint`: Formatea y corrige el código.
+- `yarn test`: Ejecuta los tests.
 
 ---
 

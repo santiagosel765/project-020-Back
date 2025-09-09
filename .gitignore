@@ -6,4 +6,4 @@ generated/
 .prisma/
 .DS_Store
 .vscode/
-yarn.lock
+package-lock.json
