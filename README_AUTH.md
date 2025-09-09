@@ -23,10 +23,10 @@ OPENAI_MODEL=
 Run these commands after cloning the repo:
 
 ```
-npx prisma generate
-npx prisma migrate dev
-npx prisma db seed
-npm run start:dev
+yarn db:generate
+yarn db:migrate
+yarn db:seed
+yarn start:dev
 ```
 
 ## Cookies
@@ -57,6 +57,8 @@ REM logout (borra cookie)
 curl.exe -i -X POST %API%/auth/logout --cookie "%COOKIE_NAME%=<token>"
 ```
 
+> En dev la cookie es `refresh_token`; en prod `__Host-refresh`.
+
 > Nota: En Windows el warning de `pdfjs-dist` sobre canvas se puede ignorar en desarrollo. Para producción, si se requiere render o medición avanzada, instala `canvas` 2.x y su toolchain.
 
 ## Testing
@@ -64,6 +66,6 @@ curl.exe -i -X POST %API%/auth/logout --cookie "%COOKIE_NAME%=<token>"
 Run lint and unit tests:
 
 ```
-npm run lint
-npm test
+yarn lint
+yarn test
 ```
