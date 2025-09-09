@@ -70,8 +70,8 @@ export class AuthService {
   }
 
   private generateTokens(user: any) {
-    const roles = user.rol_usuario?.map((r: any) => r.rol.nombre) ?? [];
-    const payload = { sub: user.id, email: user.correo_institucional, roles };
+    const roleIds = user.rol_usuario?.map((r: any) => r.rol_id) ?? [];
+    const payload = { sub: user.id, email: user.correo_institucional, roleIds };
     const access_token = signJwt(payload, {
       secret: envs.jwtAccessSecret,
       expiresIn: envs.jwtAccessExpiration,

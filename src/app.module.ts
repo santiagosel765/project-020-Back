@@ -10,6 +10,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { AiModule } from './ai/ai.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AwsModule } from './aws/aws.module';
+import { RolesModule } from './roles/roles.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 @Module({
@@ -23,6 +24,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
     ]),
     AuthModule,
     UsersModule,
+    RolesModule,
     PdfModule,
     DocumentsModule,
     AiModule,

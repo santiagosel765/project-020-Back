@@ -13,10 +13,14 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesService } from '../roles/roles.service';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly rolesService: RolesService,
+  ) {}
 
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
@@ -30,8 +34,16 @@ export class UsersController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@Req() req: any) {
-    return this.usersService.me(req.user.sub);
+  async me(@Req() req: any) {
+    const user = await this.usersService.findOne(req.user.sub);
+    if (!user) return null;
+    const pages = await this.rolesService.getPagesForUser(user.id);
+    return {
+      id: user.id,
+      nombre: user.primer_nombre,
+      correo: user.correo_institucional,
+      pages,
+    };
   }
 
   @Get(':id')
