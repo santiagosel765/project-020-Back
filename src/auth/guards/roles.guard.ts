@@ -13,7 +13,7 @@ export class RolesGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles =
-      this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      this.reflector.getAllAndOverride<number[]>(ROLES_KEY, [
         context.getHandler(),
         context.getClass(),
       ]) || [];
@@ -22,7 +22,7 @@ export class RolesGuard implements CanActivate {
     }
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new UnauthorizedException('No user in request');
-    const roles: string[] = user.roles || [];
-    return requiredRoles.some((role) => roles.includes(role));
+    const roleIds: number[] = user.roleIds || [];
+    return requiredRoles.some((role) => roleIds.includes(role));
   }
 }
