@@ -20,7 +20,7 @@ import {
   cuadro_firma,
   cuadro_firma_estado_historial,
   plantilla,
-} from '@prisma/client';
+} from 'generated/prisma';
 import {
   CreateCuadroFirmaDto,
   FirmanteUserDto,
@@ -28,7 +28,7 @@ import {
 import { formatCurrentDate } from 'src/helpers/formatDate';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { HttpResponse } from 'src/interfaces/http-response.interfaces';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { PrismaClientKnownRequestError } from 'generated/prisma/runtime/library';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 import { filaAprueba, filaRevisa } from './utils/cuadro-firmas.utils';
 
