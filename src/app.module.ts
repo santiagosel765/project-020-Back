@@ -11,6 +11,7 @@ import { AiModule } from './ai/ai.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AwsModule } from './aws/aws.module';
 import { RolesModule } from './roles/roles.module';
+import { PaginasModule } from './paginas/paginas.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 @Module({
@@ -25,6 +26,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
     AuthModule,
     UsersModule,
     RolesModule,
+    PaginasModule,
     PdfModule,
     DocumentsModule,
     AiModule,
