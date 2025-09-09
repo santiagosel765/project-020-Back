@@ -14,6 +14,12 @@ const envsSchema = joi
     JWT_ACCESS_EXPIRATION: joi.number().default(900),
     JWT_REFRESH_EXPIRATION: joi.number().default(604800),
 
+    S3_BUCKET_REGION: joi.string().optional().allow(''),
+    S3_BUCKET_NAME: joi.string().optional().allow(''),
+    S3_BUCKET_PREFIX: joi.string().optional().allow(''),
+    S3_ACCESS_KEY_ID: joi.string().optional().allow(''),
+    S3_SECRET_ACCESS_KEY: joi.string().optional().allow(''),
+
     OPENAI_API_KEY: joi.string().optional().allow(''),
     OPENAI_MODEL: joi.string().optional().allow(''),
   })
@@ -32,10 +38,18 @@ export const envs = {
     .map((o: string) => o.trim()),
   nodeEnv: value.NODE_ENV,
   databaseUrl: value.DATABASE_URL,
+
   jwtAccessSecret: value.JWT_ACCESS_SECRET,
   jwtRefreshSecret: value.JWT_REFRESH_SECRET,
   jwtAccessExpiration: value.JWT_ACCESS_EXPIRATION,
   jwtRefreshExpiration: value.JWT_REFRESH_EXPIRATION,
+
+  bucketRegion: value.S3_BUCKET_REGION as string | undefined,
+  bucketName: value.S3_BUCKET_NAME as string | undefined,
+  bucketPrefix: (value.S3_BUCKET_PREFIX as string | undefined) ?? '',
+  bucketAccessKeyID: value.S3_ACCESS_KEY_ID as string | undefined,
+  bucketSecretKey: value.S3_SECRET_ACCESS_KEY as string | undefined,
+
   openAiAPIKey: value.OPENAI_API_KEY,
   openAiModel: value.OPENAI_MODEL,
 };

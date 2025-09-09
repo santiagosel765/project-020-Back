@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-
 }
 
 datasource db {
@@ -28,8 +27,8 @@ model cuadro_firma {
   pdf                           Bytes?
   empresa_id                    Int?
   created_by                    Int?
-  estado_firma_id               Int?
-  plantilla_id                  Int?
+  estado_firma_id               Int?                            @default(4)
+  plantilla_id                  Int?                            @default(4)
   add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
   updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
   user                          user?                           @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuadro_firma_created_by")
@@ -57,12 +56,12 @@ model cuadro_firma_estado_historial {
 model cuadro_firma_user {
   cuadro_firma_id       Int
   user_id               Int
-  responsabilidad_id    Int?
+  responsabilidad_id    Int
   cuadro_firma          cuadro_firma           @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   responsabilidad_firma responsabilidad_firma? @relation(fields: [responsabilidad_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user                  user                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@id([cuadro_firma_id, user_id])
+  @@id([cuadro_firma_id, user_id, responsabilidad_id])
 }
 
 model documento {
@@ -82,6 +81,7 @@ model empresa {
   id           Int            @id @default(autoincrement())
   nombre       String         @unique @db.VarChar
   descripcion  String?
+  logo         String?
   activo       Boolean?       @default(true)
   add_date     DateTime?      @default(now()) @db.Timestamp(6)
   updated_at   DateTime?      @default(now()) @db.Timestamp(6)
@@ -155,7 +155,7 @@ model plantilla {
   nombre       String         @db.VarChar
   color        String?        @db.VarChar
   descripcion  String?
-  plantilla    Bytes?
+  plantilla    String?        @db.VarChar
   empresa_id   Int
   activo       Boolean?       @default(true)
   add_date     DateTime?      @default(now()) @db.Timestamp(6)
@@ -220,12 +220,11 @@ model user {
   foto_perfil                   Bytes?
   imagen_firma                  Bytes?
   config_tema                   String?                         @db.VarChar
-  password                      String                          @db.VarChar
-  refresh_token                 String?                         @db.VarChar
   activo                        Boolean?                        @default(true)
   created_by                    Int?
   add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
   updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
+  password                      String?                         @db.VarChar
   auditoria                     auditoria[]
   cuadro_firma                  cuadro_firma[]
   cuadro_firma_estado_historial cuadro_firma_estado_historial[]
