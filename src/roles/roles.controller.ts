@@ -5,10 +5,12 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   Post,
   Query,
   UseGuards,
   ParseIntPipe,
+  Req,
 } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { CreateRolDto } from './dto/create-rol.dto';
@@ -33,6 +35,20 @@ export class RolesController {
   @Patch(':id')
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateRolDto) {
     return this.rolesService.update(id, dto);
+  }
+
+  @Get(':id/paginas')
+  getPages(@Param('id', ParseIntPipe) id: number) {
+    return this.rolesService.getPages(id);
+  }
+
+  @Put(':id/paginas')
+  setPages(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { paginaIds: number[] },
+    @Req() req: any,
+  ) {
+    return this.rolesService.setPages(id, body.paginaIds ?? [], req.user.sub);
   }
 
   @Delete(':id')
