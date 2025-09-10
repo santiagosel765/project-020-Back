@@ -14,6 +14,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesService } from '../roles/roles.service';
+import { MeResponseDto, MePageDto } from './dto/me-response.dto';
 
 @Controller('users')
 export class UsersController {
@@ -34,10 +35,10 @@ export class UsersController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async me(@Req() req: any) {
+  async me(@Req() req: any): Promise<MeResponseDto | null> {
     const user = await this.usersService.findOne(req.user.sub);
     if (!user) return null;
-    const pages = await this.rolesService.getPagesForUser(user.id);
+    const pages = (await this.rolesService.getPagesForUser(user.id)) as MePageDto[];
     return {
       id: user.id,
       nombre: user.primer_nombre,

@@ -2,7 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaginaDto } from './dto/create-pagina.dto';
 import { UpdatePaginaDto } from './dto/update-pagina.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma } from 'generated/prisma'; 
 
 @Injectable()
 export class PaginasService {
