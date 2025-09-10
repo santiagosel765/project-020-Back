@@ -165,4 +165,13 @@ export class RolesService {
 
     return pages;
   }
+
+  // NUEVO MÉTODO
+  async getRoleNamesForUser(userId: number): Promise<string[]> {
+    const rows = await this.prisma.rol_usuario.findMany({
+      where: { user_id: userId },
+      select: { rol: { select: { nombre: true } } },
+    });
+    return rows.map((r) => r.rol.nombre);
+  }
 }
