@@ -1,3 +1,4 @@
+// src/auth/auth.controller.ts
 import { Body, Controller, Post, Req, Res, HttpCode } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -9,14 +10,19 @@ import { envs } from '../config/envs';
 type RequestWithCookies = Request & { cookies: Record<string, string> };
 
 const isProd = envs.nodeEnv === 'production';
+
+const accessCookieName = isProd ? '__Host-access' : 'access_token';
 const refreshCookieName = isProd ? '__Host-refresh' : 'refresh_token';
-const refreshCookiePath = isProd ? '/' : `${envs.apiPrefix}/auth/refresh`;
-const refreshCookieOpts = {
+
+const baseCookieOpts = {
   httpOnly: true,
-  sameSite: 'strict' as const,
-  secure: isProd,
-  path: refreshCookiePath,
+  sameSite: 'lax' as const,        
+  secure: isProd,                 
+  path: '/',   
 };
+
+const accessCookieOpts = baseCookieOpts;
+const refreshCookieOpts = baseCookieOpts;
 
 @Controller('auth')
 export class AuthController {
@@ -33,11 +39,19 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const tokens = await this.authService.login(loginDto);
-    res.cookie(refreshCookieName, tokens.refresh_token, refreshCookieOpts);
-    return { access_token: tokens.access_token };
+
+    res.cookie(accessCookieName, tokens.access_token, {
+      ...accessCookieOpts,
+      maxAge: Number(envs.jwtAccessExpiration) * 1000,
+    });
+    res.cookie(refreshCookieName, tokens.refresh_token, {
+      ...refreshCookieOpts,
+      maxAge: Number(envs.jwtRefreshExpiration) * 1000,
+    });
+
+    return { ok: true };
   }
 
-  // Avoid rate limit when refreshing tokens
   @SkipThrottle()
   @Post('refresh')
   async refresh(
@@ -45,14 +59,40 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const refreshToken = req.cookies[refreshCookieName];
+
     const tokens = await this.authService.refreshToken(refreshToken);
-    res.cookie(refreshCookieName, tokens.refresh_token, refreshCookieOpts);
-    return { access_token: tokens.access_token };
+
+    res.cookie(accessCookieName, tokens.access_token, {
+      ...accessCookieOpts,
+      maxAge: Number(envs.jwtAccessExpiration) * 1000,
+    });
+    res.cookie(refreshCookieName, tokens.refresh_token, {
+      ...refreshCookieOpts,
+      maxAge: Number(envs.jwtRefreshExpiration) * 1000,
+    });
+
+    return { ok: true };
   }
 
   @Post('logout')
   @HttpCode(204)
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(refreshCookieName, refreshCookieOpts);
+    const isProd = envs.nodeEnv === 'production';
+    const accessCookieName = isProd ? '__Host-access' : 'access_token';
+    const refreshCookieName = isProd ? '__Host-refresh' : 'refresh_token';
+
+    const baseCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax' as const,
+      secure: isProd,
+      path: '/',
+    };
+
+    const expireOpts = { ...baseCookieOpts, maxAge: 0, expires: new Date(0) };
+    res.cookie(accessCookieName, '', expireOpts);
+    res.cookie(refreshCookieName, '', expireOpts);
+
+    return;
   }
+
 }
