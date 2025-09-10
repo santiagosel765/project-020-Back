@@ -18,10 +18,10 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
 
-    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "prisma db seed",
+    "db:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
     "postinstall": "prisma generate",
 
     "lint": "eslint .",
