@@ -9,4 +9,5 @@ export class MeResponseDto {
   nombre!: string;
   correo!: string;
   pages!: MePageDto[];
+  roles!: string[];
 }

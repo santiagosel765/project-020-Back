@@ -38,12 +38,16 @@ export class UsersController {
   async me(@Req() req: any): Promise<MeResponseDto | null> {
     const user = await this.usersService.findOne(req.user.sub);
     if (!user) return null;
-    const pages = (await this.rolesService.getPagesForUser(user.id)) as MePageDto[];
+    const [pages, roles] = await Promise.all([
+      this.rolesService.getPagesForUser(user.id),
+      this.rolesService.getRoleNamesForUser(user.id),
+    ]);
     return {
       id: user.id,
       nombre: user.primer_nombre,
       correo: user.correo_institucional,
-      pages,
+      pages: pages as MePageDto[],
+      roles,
     };
   }
 
