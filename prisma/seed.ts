@@ -3,110 +3,104 @@ import { BcryptAdapter } from '../src/auth/adapters/bcrypt.adapter';
 
 const prisma = new PrismaClient();
 
+async function upsertRole(nombre: string) {
+  return prisma.rol.upsert({
+    where: { nombre },
+    update: { activo: true },
+    create: { nombre, activo: true },
+  });
+}
+
+async function upsertPage(data: { nombre: string; url: string }) {
+  return prisma.pagina.upsert({
+    where: { nombre: data.nombre },
+    update: { url: data.url, activo: true },
+    create: { nombre: data.nombre, url: data.url, activo: true },
+  });
+}
+
+async function getPagesByUrls(urls: string[]) {
+  return prisma.pagina.findMany({
+    where: { url: { in: urls } },
+    select: { id: true },
+  });
+}
+
+async function setRolePagesByUrls(rolId: number, urls: string[]) {
+  const pages = await getPagesByUrls(urls);
+  const pageIds = pages.map((p) => p.id);
+
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.pagina_rol.findMany({
+      where: { rol_id: rolId },
+    });
+    const currentIds = current.map((pr) => pr.pagina_id);
+
+    const toRemove = currentIds.filter((id) => !pageIds.includes(id));
+    const toAdd = pageIds.filter((id) => !currentIds.includes(id));
+
+    if (toRemove.length > 0) {
+      await tx.pagina_rol.deleteMany({
+        where: { rol_id: rolId, pagina_id: { in: toRemove } },
+      });
+    }
+
+    if (toAdd.length > 0) {
+      await tx.pagina_rol.createMany({
+        data: toAdd.map((pagina_id) => ({ rol_id: rolId, pagina_id })),
+        skipDuplicates: true,
+      });
+    }
+  });
+}
+
+const PAGES_DATA = [
+  { nombre: 'Asignaciones', url: '/admin/asignaciones' },
+  { nombre: 'Documentos', url: '/admin/documentos' },
+  { nombre: 'Mis Documentos', url: '/admin/mis-documentos' },
+  { nombre: 'Usuarios', url: '/admin/usuarios' },
+  { nombre: 'Roles', url: '/admin/roles' },
+  { nombre: 'Páginas', url: '/admin/page' },
+  { nombre: 'Permisos', url: '/admin/permission' },
+  { nombre: 'Supervisión', url: '/admin/supervision' },
+  { nombre: 'Mis Documentos General', url: '/general' },
+  { nombre: 'Detalle Documento', url: '/documento/[id]' },
+] as const;
+
+const GESTOR_URLS = [
+  '/general',
+  '/admin/mis-documentos',
+  '/admin/documentos',
+  '/admin/asignaciones',
+  '/admin/supervision',
+];
+
 async function main() {
   const roleNames = ['ADMIN', 'GESTOR', 'USUARIO'] as const;
   type RoleName = (typeof roleNames)[number];
   const roles: Record<RoleName, { id: number; nombre: string }> = {} as any;
 
   for (const nombre of roleNames) {
-    const role = await prisma.rol.upsert({
-      where: { nombre },
-      update: { activo: true },
-      create: { nombre, activo: true },
-    });
+    const role = await upsertRole(nombre);
     roles[nombre] = role;
     console.log(`Rol ${role.id} - ${role.nombre}`);
   }
 
-  const pagesData = [
-    { nombre: 'Dashboard', url: '/admin/dashboard' },
-    { nombre: 'Conexiones', url: '/admin/connection' },
-    { nombre: 'Procesos', url: '/admin/proccess' },
-    { nombre: 'Roles', url: '/admin/roles' },
-    { nombre: 'Paginas', url: '/admin/page' },
-    { nombre: 'Permisos', url: '/admin/permission' },
-    { nombre: 'Usuarios', url: '/admin/users' },
-    { nombre: 'busqueda Dpi', url: '/admin/searchDpi' },
-    { nombre: 'Novedades', url: '/admin/novelty' },
-    { nombre: 'Master Novedades', url: '/admin/newNovelty' },
-  ] as const;
-
-  const pages: Record<string, { id: number }> = {};
-
-  for (const p of pagesData) {
-    const page = await prisma.pagina.upsert({
-      where: { nombre: p.nombre },
-      update: { url: p.url, activo: true },
-      create: { nombre: p.nombre, url: p.url, activo: true },
-    });
-    pages[p.nombre] = page;
+  for (const page of PAGES_DATA) {
+    await upsertPage(page);
   }
 
   const totalPages = await prisma.pagina.count();
   console.log(`Total pages: ${totalPages}`);
 
-  const allPageIds = Object.values(pages).map((p) => p.id);
-  const gestorPageIds = ['Dashboard', 'Usuarios', 'Permisos'].map(
-    (n) => pages[n].id,
-  );
-
-  await prisma.$transaction(async (tx) => {
-    const current = await tx.pagina_rol.findMany({
-      where: { rol_id: roles.ADMIN.id },
-    });
-    const currentIds = new Set(current.map((pr) => pr.pagina_id));
-    const toAdd = allPageIds.filter((id) => !currentIds.has(id));
-    const toRemove = Array.from(currentIds).filter(
-      (id) => !allPageIds.includes(id),
-    );
-
-    if (toRemove.length > 0) {
-      await tx.pagina_rol.deleteMany({
-        where: { rol_id: roles.ADMIN.id, pagina_id: { in: toRemove } },
-      });
-    }
-
-    if (toAdd.length > 0) {
-      await tx.pagina_rol.createMany({
-        data: toAdd.map((pagina_id) => ({
-          rol_id: roles.ADMIN.id,
-          pagina_id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-  });
+  const allUrls = PAGES_DATA.map((p) => p.url);
+  await setRolePagesByUrls(roles.ADMIN.id, allUrls);
   const adminAssigned = await prisma.pagina_rol.count({
     where: { rol_id: roles.ADMIN.id },
   });
   console.log(`ADMIN assigned pages: ${adminAssigned}`);
 
-  await prisma.$transaction(async (tx) => {
-    const current = await tx.pagina_rol.findMany({
-      where: { rol_id: roles.GESTOR.id },
-    });
-    const currentIds = new Set(current.map((pr) => pr.pagina_id));
-    const toAdd = gestorPageIds.filter((id) => !currentIds.has(id));
-    const toRemove = Array.from(currentIds).filter(
-      (id) => !gestorPageIds.includes(id),
-    );
-
-    if (toRemove.length > 0) {
-      await tx.pagina_rol.deleteMany({
-        where: { rol_id: roles.GESTOR.id, pagina_id: { in: toRemove } },
-      });
-    }
-
-    if (toAdd.length > 0) {
-      await tx.pagina_rol.createMany({
-        data: toAdd.map((pagina_id) => ({
-          rol_id: roles.GESTOR.id,
-          pagina_id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-  });
+  await setRolePagesByUrls(roles.GESTOR.id, GESTOR_URLS);
   const gestorAssigned = await prisma.pagina_rol.count({
     where: { rol_id: roles.GESTOR.id },
   });
@@ -175,4 +169,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-
