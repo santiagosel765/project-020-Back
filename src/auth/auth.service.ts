@@ -10,6 +10,8 @@ import { BcryptAdapter } from './adapters/bcrypt.adapter';
 import { signJwt, verifyJwt } from './utils/jwt.util';
 import { envs } from '../config/envs';
 
+type JwtPayload = { sub: number; email: string; roleIds?: number[] };
+
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
@@ -17,10 +19,13 @@ export class AuthService {
   async signup(createUserDto: CreateUserDto) {
     const { correo_institucional, codigo_empleado, password, ...rest } =
       createUserDto;
+
     const exists = await this.prisma.user.findFirst({
       where: { OR: [{ correo_institucional }, { codigo_empleado }] },
+      select: { id: true },
     });
     if (exists) throw new BadRequestException('User already exists');
+
     const hashed = BcryptAdapter.hashPassword(password);
     const user = await this.prisma.user.create({
       data: {
@@ -29,17 +34,41 @@ export class AuthService {
         password: hashed,
         ...rest,
       },
+      select: {
+        id: true,
+        correo_institucional: true,
+
+      },
     });
-    
-    return this.generateTokens(user);
+
+    return this.generateTokens({
+      id: user.id,
+      correo_institucional: user.correo_institucional,
+      rol_usuario: [],
+    });
   }
 
   async login({ email, password }: LoginDto) {
     const found = await this.prisma.user.findUnique({
       where: { correo_institucional: email },
-      include: { rol_usuario: { include: { rol: true } } },
+
+      select: {
+        id: true,
+        correo_institucional: true,
+        password: true,
+        activo: true,
+        rol_usuario: {
+          select: {
+            rol_id: true,
+            rol: { select: { id: true, nombre: true } },
+          },
+        },
+      },
     });
-    if (!found) throw new UnauthorizedException('Invalid credentials');
+
+    if (!found || found.activo === false) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     if (!found.password) throw new UnauthorizedException('Invalid credentials');
 
@@ -62,16 +91,38 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { rol_usuario: { include: { rol: true } } },
+      select: {
+        id: true,
+        correo_institucional: true,
+        activo: true,
+        rol_usuario: {
+          select: {
+            rol_id: true,
+            rol: { select: { id: true, nombre: true } },
+          },
+        },
+      },
     });
-    if (!user) throw new UnauthorizedException('User not found');
+
+    if (!user || user.activo === false) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
 
     return this.generateTokens(user);
   }
 
-  private generateTokens(user: any) {
-    const roleIds = user.rol_usuario?.map((r: any) => r.rol_id) ?? [];
-    const payload = { sub: user.id, email: user.correo_institucional, roleIds };
+  private generateTokens(user: {
+    id: number;
+    correo_institucional: string;
+    rol_usuario?: { rol_id: number }[];
+  }) {
+    const roleIds = user.rol_usuario?.map((r) => r.rol_id) ?? [];
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.correo_institucional,
+      roleIds,
+    };
+
     const access_token = signJwt(payload, {
       secret: envs.jwtAccessSecret,
       expiresIn: envs.jwtAccessExpiration,
@@ -82,5 +133,4 @@ export class AuthService {
     });
     return { access_token, refresh_token };
   }
-
 }

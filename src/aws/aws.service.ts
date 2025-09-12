@@ -3,118 +3,174 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
-  type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger } from '@nestjs/common';
-import * as fs from 'fs';
 import { envs } from 'src/config/envs';
+import { Readable } from 'stream';
 
 @Injectable()
 export class AWSService {
-  private readonly logger = new Logger(AWSService.name);
+  private readonly logger: Logger = new Logger(AWSService.name);
+  
+  private readonly s3Client: S3Client = new S3Client({
+    region: envs.bucketRegion!,
+    credentials: {
+      accessKeyId: envs.bucketAccessKeyID!,
+      secretAccessKey: envs.bucketSecretKey!,
+    },
+  });
 
-  // 🔒 habilitado solo si hay mínimos: región y bucket
-  private readonly enabled =
-    Boolean(envs.bucketRegion && envs.bucketRegion.trim()) &&
-    Boolean(envs.bucketName && envs.bucketName.trim());
+  /**
+   * Sube un archivo al bucket S3 configurado.
+   *
+   * Este método:
+   * 1. Usa el cliente S3 para subir el archivo recibido como buffer al bucket y prefijo definidos en las variables de entorno.
+   * 2. El nombre del archivo en S3 será `${bucketPrefix}/${fileName}.${fileExtension}`.
+   * 3. Registra en logs el resultado de la operación.
+   *
+   * @param fileBuffer - Buffer del archivo a subir.
+   * @param fileName - Nombre base con el que se guardará el archivo en S3 (sin extensión).
+   * @param fileExtension - Extensión del archivo (por defecto "pdf").
+   * @returns Un objeto con la clave del archivo (`fileKey`) si la subida fue exitosa, o un objeto con estado `error` y mensaje descriptivo si falla.
+   */
+  async uploadFile(
+    fileBuffer: Buffer,
+    fileName: string,
+    fileExtension: string = 'pdf',
+  ) {
 
-  private _client: S3Client | null = null;
-
-  private get client(): S3Client | null {
-    if (!this.enabled) return null;
-    if (this._client) return this._client;
-
-    const config: S3ClientConfig = {
-      region: envs.bucketRegion!, // no-null because enabled=true
-    };
-
-    // Credenciales (opcionales). Si no hay, AWS SDK intentará otras fuentes (profile, role, etc.)
-    if (envs.bucketAccessKeyID && envs.bucketSecretKey) {
-      config.credentials = {
-        accessKeyId: envs.bucketAccessKeyID,
-        secretAccessKey: envs.bucketSecretKey,
-      };
-    }
-
-    this._client = new S3Client(config);
-    return this._client;
-  }
-
-  async uploadFile(filePath: string, fileName: string) {
-    if (!this.enabled || !this.client) {
-      this.logger.warn('AWS S3 deshabilitado: configura S3_BUCKET_REGION y S3_BUCKET_NAME para activar.');
-      // Mantengo mismo shape de respuesta que tu código
-      return { status: 'error', data: 'S3 no configurado' };
-    }
-
+    // ? fileName tiene que pertimnar con .pdf
+    const fileKey = `${envs.bucketPrefix}/${fileName}.${fileExtension}`;
     const uploadParams = {
-      Bucket: envs.bucketName!,
-      Key: `${envs.bucketPrefix || ''}/${fileName}`.replace(/^\/+/, ''),
-      // 👇 Usa stream o Buffer, no el path literal
-      Body: fs.createReadStream(filePath),
-      ContentType: 'application/pdf',
+      Bucket: envs.bucketName,
+      Key: fileKey,
+      Body: fileBuffer,
     };
 
     try {
-      const s3Response = await this.client.send(new PutObjectCommand(uploadParams));
+      const s3Response = await this.s3Client.send(
+        new PutObjectCommand(uploadParams),
+      );
 
-      // Limpia el archivo temporal local
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      this.logger.log(`S3 response: ${s3Response}`);
+      this.logger.log(`File key: ${envs.bucketPrefix}/${fileName}.pdf`);
 
-      this.logger.log(`S3 putObject OK: ${JSON.stringify(s3Response)}`);
-      return { status: 'success', data: 'Archivo subido al bucket exitosamente' };
+      return {
+        fileKey,
+      };
     } catch (error) {
-      const errMsg = `Problemas al subir archivo "${filePath}" al bucket. Error: ${error}`;
+      const errMsg = `Problemas al subir archivo "${fileName}" al bucket. Error: ${error}`;
       this.logger.error(errMsg);
-      return { status: 'error', data: errMsg };
+      return {
+        status: 'error',
+        data: errMsg,
+      };
     }
   }
 
-  async getPresignedURL(fileName: string, expireTime = 3000) {
-    if (!this.enabled || !this.client) {
-      this.logger.warn('AWS S3 deshabilitado: configura S3_BUCKET_REGION y S3_BUCKET_NAME para activar.');
-      return { status: 'error', data: 'S3 no configurado' };
-    }
-
-    const exists = await this.checkFileAvailabilityInBucket(fileName);
-    if (!exists) {
-      return { status: 'error', data: `No fue posible encontrar el archivo ${fileName} en el bucket.` };
-    }
+  /**
+   * Genera una URL prefirmada (presigned URL) para acceder temporalmente a un archivo en S3.
+   *
+   * Este método:
+   * 1. Construye la clave del archivo (`fileKey`) usando el prefijo, nombre y extensión.
+   * 2. Crea un comando `GetObjectCommand` para el archivo especificado.
+   * 3. Genera una URL prefirmada con tiempo de expiración (por defecto 3000 segundos).
+   * 4. Si ocurre un error, lo registra en logs y retorna un mensaje de error.
+   *
+   * @param fileName - Nombre base del archivo en S3 (sin extensión).
+   * @param fileExtension - Extensión del archivo (por defecto "pdf").
+   * @param expireTime - Tiempo de expiración de la URL en segundos (por defecto 3600 = 1 hora).
+   * @returns Un objeto con el estado (`success` o `error`) y la URL prefirmada o el mensaje de error.
+   */
+  async getPresignedURL(
+    fileName: string,
+    fileExtension: string = 'pdf',
+    expireTime = 3600,
+  ) {
+    const fileKey = `${envs.bucketPrefix}/${fileName}.${fileExtension}`;
 
     const command = new GetObjectCommand({
-      Bucket: envs.bucketName!,
-      Key: `${envs.bucketPrefix || ''}/${fileName}`.replace(/^\/+/, ''),
+      Bucket: envs.bucketName,
+      Key: fileKey,
+      ResponseContentType: 'application/pdf',
+      ResponseContentDisposition: `inline;fileName=${fileName}.pdf`,
     });
 
     try {
-      const url = await getSignedUrl(this.client, command, { expiresIn: expireTime });
-      return { status: 'success', data: url };
+      const url = await getSignedUrl(this.s3Client, command, {
+        expiresIn: expireTime,
+      });
+      
+      return {
+        status: 'success',
+        data: url,
+      };
     } catch (error) {
-      const errMsg = `Problemas al obtener url del archivo "${fileName}". Error: ${error}`;
+      const errMsg = `Problemas al obtener url del archivo "${fileKey}" al bucket. Error: ${error}`;
       this.logger.error(errMsg);
-      return { status: 'error', data: errMsg };
+      return {
+        status: 'success',
+        data: errMsg,
+      };
     }
   }
 
+  /**
+   * Verifica si un archivo existe en el bucket S3 configurado.
+   *
+   * Este método:
+   * 1. Envía un comando `HeadObject` a S3 para comprobar la existencia del archivo especificado por `fileName` (incluyendo el prefijo).
+   * 2. Si el archivo existe, retorna `true`.
+   * 3. Si el archivo no existe o ocurre un error, registra el error en logs y retorna `false`.
+   *
+   * @param fileName - Nombre del archivo en S3 (debe de contener extensión (ej: .pdf, .png)).
+   * @returns `true` si el archivo existe en el bucket, `false` en caso contrario.
+   */
   async checkFileAvailabilityInBucket(fileName: string) {
-    if (!this.enabled || !this.client) {
-      this.logger.warn('AWS S3 deshabilitado: configura S3_BUCKET_REGION y S3_BUCKET_NAME para activar.');
-      return false;
-    }
     try {
-      await this.client.send(
+      await this.s3Client.send(
         new HeadObjectCommand({
-          Bucket: envs.bucketName!,
-          Key: `${envs.bucketPrefix || ''}/${fileName}`.replace(/^\/+/, ''),
+          Bucket: envs.bucketName,
+          Key: `${envs.bucketPrefix}/${fileName}`,
         }),
       );
+
       return true;
-    } catch {
-      this.logger.error(`No fue posible encontrar el archivo ${fileName} en el bucket.`);
+    } catch (error) {
+      this.logger.error(
+        `No fue posible encontrar el archivo ${fileName} en el bucket.`,
+      );
       return false;
+    }
+  }
+
+  async getFileBuffer(
+    fileName: string,
+    fileExtension: string = 'pdf',
+  ): Promise<Buffer> {
+    const fileKey = `${envs.bucketPrefix}/${fileName}.${fileExtension}`;
+    const command = new GetObjectCommand({
+      Bucket: envs.bucketName,
+      Key: fileKey,
+    });
+    const response = await this.s3Client.send(command);
+
+    // response.Body puede ser Readable o Buffer
+    if (response.Body instanceof Readable) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of response.Body) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    } else if (Buffer.isBuffer(response.Body)) {
+      return response.Body;
+    } else if (typeof response.Body?.transformToByteArray === 'function') {
+      // Para entornos como Cloudflare Workers
+      const byteArray = await response.Body.transformToByteArray();
+      return Buffer.from(byteArray);
+    } else {
+      throw new Error('No se pudo procesar el stream del archivo S3');
     }
   }
 }

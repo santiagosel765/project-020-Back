@@ -10,11 +10,12 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
 
     logger: Logger = new Logger("PDFPuppeteerRepository");
 
-    async generatePDFFromHTML(htmlContent: string): Promise<string> {
+    async generatePDFFromHTML(htmlContent: string): Promise<{outputPath: string, fileName: string}> {
         const timestamp: number = Date.now();
         const timestampString: string = timestamp.toString();
         const tmpFolder = path.join(process.cwd(), 'tmp/files');
-        const outputPath = `${tmpFolder}/CUADRO_FIRMAS_${timestampString}.pdf`
+        const fileName= `CUADRO_FIRMAS_${timestampString}`
+        const outputPath = `${tmpFolder}/${fileName}.pdf`
 
         try {
             const browser = await puppeteer.launch();
@@ -28,7 +29,10 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
             }
             
             this.logger.log('Archivo PDF generado exitosamente')
-            return outputPath;
+            return {
+                outputPath,
+                fileName
+            };
             
         } catch (error) {
             const errMsg = `No se ha podido generar archivo PDF, error: ${error}`;

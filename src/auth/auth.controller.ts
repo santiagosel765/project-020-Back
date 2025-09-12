@@ -1,4 +1,3 @@
-// src/auth/auth.controller.ts
 import { Body, Controller, Post, Req, Res, HttpCode } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';

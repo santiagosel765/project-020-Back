@@ -5,8 +5,6 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { CreateDocumentDto } from './dto/create-document.dto';
-import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PDF_REPOSITORY } from '../pdf/domain/repositories/pdf.repository';
 import type { PdfRepository } from '../pdf/domain/repositories/pdf.repository';
 import fs from 'fs';
@@ -16,33 +14,47 @@ import { PDF_GENERATION_REPOSITORY } from 'src/pdf/domain/repositories/pdf-gener
 import type { PdfGenerationRepository } from 'src/pdf/domain/repositories/pdf-generation.repository';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import {
-  cuadro_firma,
-  cuadro_firma_estado_historial,
-  plantilla,
-} from 'generated/prisma';
+import { cuadro_firma, cuadro_firma_estado_historial } from 'generated/prisma';
 import {
   CreateCuadroFirmaDto,
   FirmanteUserDto,
+  ResponsablesFirmaDto,
 } from './dto/create-cuadro-firma.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { HttpResponse } from 'src/interfaces/http-response.interfaces';
 import { PrismaClientKnownRequestError } from 'generated/prisma/runtime/library';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
-import { filaAprueba, filaRevisa } from './utils/cuadro-firmas.utils';
+import { CuadroFirmaDB } from './interfaces/cuadro-firma.interface';
+import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
+import { AWSService } from 'src/aws/aws.service';
+import { generarFilasFirmas } from './utils/generar-filas-firma.utils';
+import {
+  CUADRO_FIRMAS_REPOSITORY,
+  CuadroFirmaRepository,
+} from 'src/database/domain/repositories/cuadro-firmas.repository';
+import {
+  DOCUMENTOS_REPOSITORY,
+  DocumentosRepository,
+} from 'src/database/domain/repositories/documentos.repository';
+import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
+import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 @Injectable()
 export class DocumentsService {
   logger: Logger = new Logger(DocumentsService.name);
 
   constructor(
+    @Inject(CUADRO_FIRMAS_REPOSITORY)
+    private readonly cuadroFirmasRepository: CuadroFirmaRepository,
+    @Inject(DOCUMENTOS_REPOSITORY)
+    private readonly documentosRepository: DocumentosRepository,
     @Inject(PDF_REPOSITORY)
     private readonly pdfRepository: PdfRepository,
     @Inject(PDF_GENERATION_REPOSITORY)
     private readonly pdfGeneratorRepository: PdfGenerationRepository,
-    // private readonly aiService: AiService,
     private prisma: PrismaService,
+    private awsService: AWSService,
   ) {}
 
   private handleDBErrors = (error: any, msg: string = '') => {
@@ -54,56 +66,164 @@ export class DocumentsService {
     throw new HttpException(msg, HttpStatus.INTERNAL_SERVER_ERROR);
   };
 
-  create(createDocumentDto: CreateDocumentDto) {
-    return 'This action adds a new document';
-  }
-
-  async signDocumentTest(
-    pdfBuffer: Buffer,
-    signatureBuffer: Buffer,
-  ): Promise<Buffer | null> {
-    // ? Placeholder 'FIRMA_DIGITAL' por defecto
-    const signedPdfBuffer = await this.pdfRepository.insertSignature(
-      pdfBuffer,
-      signatureBuffer,
-      null as any,
-    );
+  async guardarDocumento(file: Buffer) {
     const timestamp: number = Date.now();
     const timestampString: string = timestamp.toString();
-    try {
-      const testFolder = path.join(process.cwd(), 'tmp/files');
-      if (!fs.existsSync(testFolder))
-        fs.mkdirSync(testFolder, { recursive: true });
-
-      if (signedPdfBuffer)
-        fs.writeFileSync(`tmp/files/${timestampString}.pdf`, signedPdfBuffer);
-    } catch (error) {
-      throw new HttpException(
-        `Problemas al generar archivo de salida: ${error}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-
-    return signedPdfBuffer;
+    const fileName = `DOCUMENTO_PDF_${timestampString}`;
+    return await this.awsService.uploadFile(file, fileName);
   }
 
-  async multipleSignDocumentTest(signDocumentDto: SignDocumentDto) {
-    const { signatures, pdfBuffer } = signDocumentDto;
+  async updateDocumentoAsignacion(
+    id: number,
+    idUser: number,
+    observaciones: string,
+    file: Buffer,
+  ) {
+    try {
+      const documentoDB = await this.getDocumentoByCuadroFirmaID(id);
+      await this.awsService.uploadFile(file, documentoDB?.data.nombre_archivo!);
+
+      const updateData = {
+        updated_by: idUser,
+        updated_at: new Date(),
+      };
+
+      await this.documentosRepository.updateDocumentoByCuadroFirmaID(
+        id,
+        updateData,
+      );
+
+      const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
+        cuadroFirmaId: id,
+        estadoFirmaId: 2, // ? En Progreso
+        userId: idUser, // ? persona que actualiza el cuadro de firmas
+        observaciones: observaciones ?? `Se ha actualizado el documento`,
+      };
+
+      await this.cuadroFirmasRepository.agregarHistorialCuadroFirma(
+        addHistorialCuadroFirmaDto,
+      );
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: 'Documento actualizado exitosamente',
+      };
+    } catch (error) {
+      this.handleDBErrors(
+        error,
+        `Problemas al actualziar documento de asignación`,
+      );
+    }
+  }
+
+  async signDocument(
+    firmaCuadroDto: FirmaCuadroDto,
+    signatureBuffer: Buffer,
+  ): Promise<any> {
+    // TODO: Considerar obtener imagen firma de DB
+
+    const cuadroFirmaDB = await this.findCuadroFirmaPDF(
+      +firmaCuadroDto.cuadroFirmaId,
+    );
+
+    // ? Validar que las personas firmen en orden
+    await this.cuadroFirmasRepository.validarOrdenFirma(firmaCuadroDto);
+
+    const pdfBuffer = await this.awsService.getFileBuffer(
+      cuadroFirmaDB?.nombre_pdf!,
+    );
+
+    let placeholder = 'FECHA_';
+    const nombreCompleto = firmaCuadroDto.nombreUsuario.replaceAll(' ', '_');
+    switch (firmaCuadroDto.nombreResponsabilidad) {
+      case 'Aprueba':
+        placeholder += `APRUEBA_${nombreCompleto}`;
+        break;
+      case 'Revisa':
+        placeholder += `REVISA_${nombreCompleto}`;
+        break;
+      case 'Enterado':
+        placeholder += `ENTERADO_${nombreCompleto}`;
+        break;
+      case 'Elabora':
+        placeholder += `ELABORA_${nombreCompleto}`;
+        break;
+      default:
+        break;
+    }
+
+    const signedPdfBuffer = await this.pdfRepository.insertSignature(
+      pdfBuffer!,
+      signatureBuffer,
+      placeholder,
+      null as any,
+    );
 
     try {
-      const signedPdfBuffer = await this.pdfRepository.insertMultipleSignature(
-        pdfBuffer,
-        signatures,
-        null as any,
-      );
-      const timestamp: number = Date.now();
-      const timestampString: string = timestamp.toString();
-      const testFolder = path.join(process.cwd(), 'tmp/files');
-      if (!fs.existsSync(testFolder))
-        fs.mkdirSync(testFolder, { recursive: true });
+      // await this.prisma.cuadro_firma.update({
+      //   where: {
+      //     id: +firmaCuadroDto.cuadroFirmaId,
+      //   },
+      //   data: {
+      //     pdf: null,
+      //   },
+      // });
 
-      if (signedPdfBuffer)
-        fs.writeFileSync(`tmp/files/${timestampString}.pdf`, signedPdfBuffer);
+      const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
+        cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
+        estadoFirmaId: 2, // ? En Progreso
+        userId: +firmaCuadroDto.userId,
+        observaciones: `${firmaCuadroDto.nombreUsuario}, responsable de "${firmaCuadroDto.nombreResponsabilidad}" ha firmado el documento`,
+      };
+
+      
+      await this.prisma.cuadro_firma.update({
+        where: {
+          id: +firmaCuadroDto.cuadroFirmaId,
+        },
+        data: {
+          estado_firma_id: 2,
+        },
+      });
+
+      await this.agregarHistorialCuadroFirma(addHistorialCuadroFirmaDto);
+
+      await this.cuadroFirmasRepository.updateCuadroFirmaUser(
+        {
+          cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
+          userId: +firmaCuadroDto.userId,
+          responsabilidadId: +firmaCuadroDto.responsabilidadId,
+        }, 
+        {
+          estaFirmado: true,
+          fecha_firma: new Date(),
+        }
+      );
+
+      // await this.prisma.cuadro_firma_user.update({
+      //   where: {
+      //     // ? Llave compuesta
+      //     cuadro_firma_id_user_id_responsabilidad_id: {
+      //       cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
+      //       user_id: +firmaCuadroDto.userId,
+      //       responsabilidad_id: +firmaCuadroDto.responsabilidadId,
+      //     },
+      //   },
+
+      //   data: {
+      //     estaFirmado: true,
+      //     fecha_firma: new Date(),
+      //   },
+      // });
+
+      await this.awsService.uploadFile(
+        signedPdfBuffer!,
+        cuadroFirmaDB?.nombre_pdf!,
+      );
+
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: 'Documento firmado exitosamente',
+      };
     } catch (error) {
       throw new HttpException(
         `Problemas al generar archivo de salida: ${error}`,
@@ -158,7 +278,7 @@ export class DocumentsService {
     );
 
     try {
-      const newPlantilla = await this.prisma.plantilla.create({
+      await this.prisma.plantilla.create({
         data: {
           color: createPlantillaDto.color,
           nombre: createPlantillaDto.nombre,
@@ -195,73 +315,25 @@ export class DocumentsService {
    */
   async generarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
-  ): Promise<{ pdfContent: NonSharedBuffer; plantilladId: number }> {
-    const dbPlantilla = await this.prisma.plantilla.findFirst({
-      where: {
-        empresa_id: createCuadroFirmaDto.empresa_id,
-      },
-      include: {
-        empresa: true,
-      },
-    });
-
-    if (!dbPlantilla) {
-      throw new HttpException(
-        `La plantilla de la empresa con ID "${createCuadroFirmaDto.empresa_id}" no existe`,
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const filasApruebaStr = this.generarFilasFirmas(
-      createCuadroFirmaDto.responsables?.aprueba,
-      'APRUEBA',
-      'Aprobado<br>por:'
-    );
-
-    const filasRevisaStr = this.generarFilasFirmas(
-      createCuadroFirmaDto.responsables?.revisa,
-      'REVISA',
-      'Revisado<br>por:'
-    );
-
-    // ? Las fechas se generan cuando firmen
-    const placeholders = {
-      '[TITULO]': createCuadroFirmaDto.titulo,
-      '[CODIGO]': createCuadroFirmaDto.codigo,
-      '[VERSION]': createCuadroFirmaDto.version,
-      '[DESCRIPCION]': createCuadroFirmaDto.descripcion,
-      '[FECHA]': formatCurrentDate(),
-      '[LOGO_URL]': dbPlantilla.empresa.logo || '',
-      FIRMANTE_ELABORA: createCuadroFirmaDto.responsables?.elabora?.nombre!,
-      PUESTO_ELABORA: createCuadroFirmaDto.responsables?.elabora?.puesto!,
-      GERENCIA_ELABORA: createCuadroFirmaDto.responsables?.elabora?.gerencia!,
-      FECHA_ELABORA: `FECHA_ELABORA_${createCuadroFirmaDto.responsables?.elabora?.nombre!}`,
-      '[FILAS_REVISA]': filasRevisaStr,
-      '[FILAS_APRUEBA]': filasApruebaStr,
-    };
-
+    responsables: ResponsablesFirmaDto,
+  ): Promise<{
+    pdfContent: NonSharedBuffer;
+    plantilladId: number;
+    formattedHtml: string;
+    fileName: string;
+  }> {
     try {
-      const formattedHtml = this.pdfGeneratorRepository.replacePlaceholders(
-        dbPlantilla.plantilla!,
-        placeholders,
-      );
-
-      // ? Generar pdf - cuadro de firmas
-      const pdfPath =
-        await this.pdfGeneratorRepository.generatePDFFromHTML(formattedHtml);
-
-      if (!fs.existsSync(pdfPath)) {
-        throw new HttpException(
-          `Problemas al generar cuadro de firmas en ruta: ${pdfPath}`,
-          HttpStatus.BAD_REQUEST,
+      const { pdfContent, plantilladId, formattedHtml, fileName } =
+        await this.cuadroFirmasRepository.generarCuadroFirmas(
+          createCuadroFirmaDto,
+          responsables,
         );
-      }
-
-      const pdfContent = fs.readFileSync(pdfPath);
 
       return {
         pdfContent,
-        plantilladId: dbPlantilla.id,
+        plantilladId: plantilladId,
+        formattedHtml,
+        fileName,
       };
     } catch (error) {
       return this.handleDBErrors(
@@ -285,23 +357,41 @@ export class DocumentsService {
    */
   async guardarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
+    responsables: ResponsablesFirmaDto,
+    documentoPDF: Buffer,
   ): Promise<cuadro_firma> {
     try {
-      const { pdfContent, plantilladId } =
-        await this.generarCuadroFirmas(createCuadroFirmaDto);
+      const { pdfContent, plantilladId, formattedHtml, fileName } =
+        await this.generarCuadroFirmas(createCuadroFirmaDto, responsables);
+
+      // ? Subir cuadro de firmas a S3
+      const { fileKey: cuadroFirmasKey } = await this.awsService.uploadFile(
+        pdfContent,
+        fileName,
+      );
+
+      const timestamp: number = Date.now();
+      const timestampString: string = timestamp.toString();
+      const bucketFileName = `DOCUMENTO_PDF_${timestampString}`;
+      const { fileKey } = await this.awsService.uploadFile(
+        documentoPDF,
+        bucketFileName,
+      );
+
       // ? Guardar cuadro de firmas en DB, por defecto inicia en estado "Pendiente"
-      const cuadroFirmaDB = await this.prisma.cuadro_firma.create({
-        data: {
-          titulo: createCuadroFirmaDto.titulo,
-          descripcion: createCuadroFirmaDto.descripcion,
-          codigo: createCuadroFirmaDto.codigo,
-          version: createCuadroFirmaDto.version,
-          pdf: pdfContent,
-          empresa: { connect: { id: createCuadroFirmaDto.empresa_id } },
-          plantilla: { connect: { id: plantilladId } },
-          user: { connect: { id: createCuadroFirmaDto.createdBy } },
-        },
-      });
+      const cuadroFirmaDB =
+        await this.cuadroFirmasRepository.guardarCuadroFirmas(
+          createCuadroFirmaDto,
+          responsables,
+          documentoPDF,
+          null,
+          plantilladId,
+          formattedHtml,
+          fileName,
+          cuadroFirmasKey!,
+          bucketFileName!,
+          +createCuadroFirmaDto.createdBy,
+        );
 
       if (!cuadroFirmaDB) {
         throw new HttpException(
@@ -310,15 +400,23 @@ export class DocumentsService {
         );
       }
 
-      // TODO: Create usuarios firmantes
-      await this.agregarResponsableCuadroFirma(createCuadroFirmaDto.responsables?.elabora!, cuadroFirmaDB.id);
-      createCuadroFirmaDto.responsables?.revisa?.forEach( async (f) => {
-        await this.agregarResponsableCuadroFirma(f, cuadroFirmaDB.id);
+      await this.asignarResponsablesCuadroFirmas(
+        responsables,
+        cuadroFirmaDB.id,
+      );
+
+      // ? Subir documento negocio a S3
+
+      // ? Crear documento
+      await this.prisma.documento.create({
+        data: {
+          cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
+          pdf: documentoPDF,
+          user: { connect: { id: cuadroFirmaDB.created_by! } },
+          nombre_archivo: bucketFileName,
+          url_documento: fileKey,
+        },
       });
-      createCuadroFirmaDto.responsables?.aprueba?.forEach( async (f) => {
-        await this.agregarResponsableCuadroFirma(f, cuadroFirmaDB.id);
-      });
-      
 
       return cuadroFirmaDB;
     } catch (error) {
@@ -327,6 +425,30 @@ export class DocumentsService {
         `Problemas al generar cuadro de firmas: ${error}`,
       );
     }
+  }
+
+  async asignarResponsablesCuadroFirmas(
+    responsables: ResponsablesFirmaDto,
+    cuadroFirmaID: number,
+  ) {
+    await this.agregarResponsableCuadroFirma(
+      responsables?.elabora!,
+      cuadroFirmaID,
+    );
+    responsables?.revisa?.forEach(async (f) => {
+      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
+    });
+    responsables?.aprueba?.forEach(async (f) => {
+      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
+    });
+  }
+
+  async getDocumentoURLBucket(fileName: string) {
+    const url = await this.awsService.getPresignedURL(fileName);
+    return {
+      status: HttpStatus.ACCEPTED,
+      data: url,
+    };
   }
 
   /**
@@ -345,18 +467,9 @@ export class DocumentsService {
     addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto,
   ): Promise<cuadro_firma_estado_historial> {
     try {
-      return await this.prisma.cuadro_firma_estado_historial.create({
-        data: {
-          user: { connect: { id: addHistorialCuadroFirmaDto.userId } },
-          cuadro_firma: {
-            connect: { id: addHistorialCuadroFirmaDto.cuadroFirmaId },
-          },
-          estado_firma: {
-            connect: { id: addHistorialCuadroFirmaDto.estadoFirmaId },
-          },
-          observaciones: addHistorialCuadroFirmaDto.observaciones,
-        },
-      });
+      return await this.cuadroFirmasRepository.agregarHistorialCuadroFirma(
+        addHistorialCuadroFirmaDto,
+      );
     } catch (error) {
       return this.handleDBErrors(
         error,
@@ -389,10 +502,93 @@ export class DocumentsService {
     }
   }
 
-  async findCuadroFirma(id: number): Promise<cuadro_firma> {
+  async findCuadroFirma(id: number): Promise<CuadroFirmaDB> {
     try {
       const cuadroFirmaDB = await this.prisma.cuadro_firma.findFirst({
         where: { id },
+        select: {
+          id: true,
+          titulo: true,
+          nombre_pdf: true,
+          descripcion: true,
+          version: true,
+          codigo: true,
+          empresa_id: true,
+          created_by: true,
+          user: {
+            select: {
+              id: true,
+              primer_nombre: true,
+              segundo_name: true,
+              tercer_nombre: true,
+              primer_apellido: true,
+              segundo_apellido: true,
+              apellido_casada: true,
+              correo_institucional: true,
+              gerencia: {
+                select: {
+                  id: true,
+                  nombre: true,
+                },
+              },
+              posicion: {
+                select: {
+                  id: true,
+                  nombre: true,
+                },
+              },
+            },
+          },
+          estado_firma: {
+            select: {
+              nombre: true,
+              descripcion: true,
+            },
+          },
+          cuadro_firma_estado_historial: {
+            select: {
+              observaciones: true,
+              fecha_observacion: true,
+              updated_at: true,
+              user: true,
+              estado_firma: true,
+            },
+          },
+          cuadro_firma_user: {
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  primer_nombre: true,
+                  segundo_name: true,
+                  tercer_nombre: true,
+                  primer_apellido: true,
+                  segundo_apellido: true,
+                  apellido_casada: true,
+                  correo_institucional: true,
+                  gerencia: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                    },
+                  },
+                  posicion: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                    },
+                  },
+                },
+              },
+              responsabilidad_firma: {
+                select: {
+                  id: true,
+                  nombre: true,
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!cuadroFirmaDB) {
@@ -402,11 +598,43 @@ export class DocumentsService {
         );
       }
 
-      return cuadroFirmaDB;
+      return cuadroFirmaDB as CuadroFirmaDB;
     } catch (error) {
       return this.handleDBErrors(
         error,
         `Problemas al obtener cuadro de firma con id "${id}": ${error}`,
+      );
+    }
+  }
+
+  async findCuadroFirmaPDF(id: number): Promise<{
+    pdf: Uint8Array<ArrayBufferLike> | null;
+    nombre_pdf: string | null;
+  } | null> {
+    try {
+      const cuadroFirmaPDF = await this.prisma.cuadro_firma.findFirst({
+        where: { id },
+        select: {
+          pdf: true,
+          nombre_pdf: true,
+        },
+      });
+
+      if (!cuadroFirmaPDF) {
+        throw new HttpException(
+          `Cuadro de firma con ID "${id} no existe"`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      return {
+        pdf: cuadroFirmaPDF.pdf,
+        nombre_pdf: cuadroFirmaPDF.nombre_pdf,
+      };
+    } catch (error) {
+      return this.handleDBErrors(
+        error,
+        `Problemas al obtener pdf del cuadro de firma con id "${id}": ${error}`,
       );
     }
   }
@@ -428,6 +656,7 @@ export class DocumentsService {
   async updateCuadroFirmas(
     id: number,
     updateCuadroFirmaDto: UpdateCuadroFirmaDto,
+    responsables: ResponsablesFirmaDto,
   ) {
     try {
       const cuadroFirmaDB = await this.findCuadroFirma(id);
@@ -439,21 +668,24 @@ export class DocumentsService {
         version: updateCuadroFirmaDto.version ?? cuadroFirmaDB.version!,
         codigo: updateCuadroFirmaDto.codigo ?? cuadroFirmaDB.codigo!,
         empresa_id:
-          updateCuadroFirmaDto.empresa_id ?? cuadroFirmaDB.empresa_id!,
-        createdBy: updateCuadroFirmaDto.createdBy ?? cuadroFirmaDB.created_by!,
-        responsables: undefined,
+          updateCuadroFirmaDto.empresa_id! ?? cuadroFirmaDB.empresa_id!,
+        createdBy:
+          updateCuadroFirmaDto.createdBy! ?? +cuadroFirmaDB.created_by!,
       };
 
-      const { pdfContent } =
-        await this.generarCuadroFirmas(createCuadroFirmaDto);
+      const { pdfContent } = await this.generarCuadroFirmas(
+        createCuadroFirmaDto,
+        responsables,
+      );
 
-      const updatedCuadroFirmas = await this.prisma.cuadro_firma.update({
-        where: { id },
-        data: {
-          ...updateCuadroFirmaDto,
-          pdf: pdfContent,
-        },
-      });
+      const updatedCuadroFirmas =
+        await this.cuadroFirmasRepository.updateCuadroFirmas(
+          id,
+          updateCuadroFirmaDto,
+          responsables,
+          null,
+          +createCuadroFirmaDto.empresa_id,
+        );
 
       if (!updatedCuadroFirmas) {
         throw new HttpException(
@@ -461,6 +693,21 @@ export class DocumentsService {
           HttpStatus.BAD_REQUEST,
         );
       }
+
+      await this.awsService.uploadFile(pdfContent, cuadroFirmaDB.nombre_pdf);
+
+      const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
+        cuadroFirmaId: id,
+        estadoFirmaId: 2, // ? En Progreso
+        userId: +updateCuadroFirmaDto.createdBy!, // ? persona que actualiza el cuadro de firmas
+        observaciones:
+          updateCuadroFirmaDto.observaciones ??
+          `Se ha actualizado el cuadro de firmas`,
+      };
+
+      await this.cuadroFirmasRepository.agregarHistorialCuadroFirma(
+        addHistorialCuadroFirmaDto,
+      );
 
       return {
         status: HttpStatus.ACCEPTED,
@@ -474,28 +721,97 @@ export class DocumentsService {
     }
   }
 
-  private generarFilasFirmas(
-    firmantes: FirmanteUserDto[] | undefined,
-    tipo: 'APRUEBA' | 'REVISA',
-    labelPrimeraFila: string,
-  ): string {
-    if (!firmantes) return '';
+  async getAllEstadosFirma() {
+    return this.prisma.estado_firma.findMany();
+  }
 
-    return firmantes
-      .map((f, index) => {
-        const rowLabel = index === 0 ? labelPrimeraFila : '';
-        return `<tr class="tr-firmas">
-        <td class="row-label">${rowLabel}</td>
-        <td>FIRMANTE_${tipo}</td>
-        <td>PUESTO_${tipo}</td>
-        <td>GERENCIA_${tipo}</td>
-        <td class="td-firma"></td>
-        <td>FECHA_${tipo}_${f.nombre}</td>
-      </tr>`
-          .replace(`FIRMANTE_${tipo}`, f.nombre)
-          .replace(`PUESTO_${tipo}`, f.puesto)
-          .replace(`GERENCIA_${tipo}`, f.gerencia);
-      })
-      .join('');
+  async getDocumentoByCuadroFirmaID(id: number) {
+    try {
+      const documentoDB =
+        await this.cuadroFirmasRepository.getDocumentoByCuadroFirmaID(id);
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: documentoDB,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Problemas al obtener documento en cuadro de firmas con ID "${id}": ${error}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getUsuariosFirmantesCuadroFirmas(id: number) {
+    try {
+      const firmantes =
+        await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(id);
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: firmantes,
+      };
+    } catch (error) {
+      this.handleDBErrors(
+        error,
+        `Problemas al obtener firmantes de cuadro de firmas`,
+      );
+    }
+  }
+
+  async getHistorialCuadroFirmas(id: number, paginationDto: PaginationDto) {
+    try {
+      const historial =
+        await this.cuadroFirmasRepository.getHistorialCuadroFirmas(id, paginationDto);
+
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: historial,
+      };
+    } catch (error) {
+      this.handleDBErrors(
+        error,
+        `Problemas al obtener historial de cuadro de firmas`,
+      );
+    }
+  }
+
+  async updateEstadoAsignacion(
+    updateEstadoAsignacionDto: UpdateEstadoAsignacionDto,
+  ) {
+    const isUpdated = await this.cuadroFirmasRepository.updateEstadoFirma(
+      updateEstadoAsignacionDto,
+    );
+    return {
+      status: HttpStatus.ACCEPTED,
+      data: 'Estado de asignación actualizado exitosamente',
+    };
+  }
+
+  async getAsignacionesByUserId(userId: number, paginationDto: PaginationDto) {
+    const asignaciones =
+      await this.cuadroFirmasRepository.getAsignacionesByUserId(userId, paginationDto);
+    if (asignaciones.asignaciones.length === 0) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        data: `No hay asignaciones para el usuario con id "${userId}"`,
+      };
+    }
+    return {
+      status: HttpStatus.ACCEPTED,
+      data: asignaciones,
+    };
+  }
+  async getSupervisionDocumentos(paginationDto: PaginationDto) {
+    const asignaciones =
+      await this.cuadroFirmasRepository.getSupervisionDocumentos(paginationDto);
+    if (asignaciones.documentos.length === 0) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        data: `No hay documentos registrados en la plataforma"`,
+      };
+    }
+    return {
+      status: HttpStatus.ACCEPTED,
+      data: asignaciones,
+    };
   }
 }
