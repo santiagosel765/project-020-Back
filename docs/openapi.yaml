@@ -1,0 +1,655 @@
+openapi: 3.0.0
+info:
+  title: API
+  version: "1.0"
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreateUserDto:
+      type: object
+      required: [primer_nombre, primer_apellido, correo_institucional, codigo_empleado, password]
+      properties:
+        primer_nombre:
+          type: string
+        primer_apellido:
+          type: string
+        correo_institucional:
+          type: string
+        codigo_empleado:
+          type: string
+        password:
+          type: string
+    LoginDto:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    CreateRolDto:
+      type: object
+      required: [nombre]
+      properties:
+        nombre:
+          type: string
+        descripcion:
+          type: string
+        activo:
+          type: boolean
+        created_by:
+          type: number
+    CreatePaginaDto:
+      type: object
+      required: [nombre, url]
+      properties:
+        nombre:
+          type: string
+        url:
+          type: string
+        descripcion:
+          type: string
+        activo:
+          type: boolean
+    CreatePlantillaDto:
+      type: object
+      required: [color, nombre, descripcion, idEmpresa]
+      properties:
+        color:
+          type: string
+        nombre:
+          type: string
+        descripcion:
+          type: string
+        idEmpresa:
+          type: number
+    FirmanteUserDto:
+      type: object
+      properties:
+        userId: { type: number }
+        nombre: { type: string }
+        puesto: { type: string }
+        gerencia: { type: string }
+        responsabilidadId: { type: number }
+    ResponsablesFirmaDto:
+      type: object
+      properties:
+        elabora:
+          $ref: '#/components/schemas/FirmanteUserDto'
+        revisa:
+          type: array
+          items:
+            $ref: '#/components/schemas/FirmanteUserDto'
+        aprueba:
+          type: array
+          items:
+            $ref: '#/components/schemas/FirmanteUserDto'
+    CreateCuadroFirmaDto:
+      type: object
+      required: [titulo, descripcion, version, codigo, empresa_id, createdBy]
+      properties:
+        titulo: { type: string }
+        descripcion: { type: string }
+        version: { type: string }
+        codigo: { type: string }
+        empresa_id: { type: string }
+        createdBy: { type: string }
+    AddHistorialCuadroFirmaDto:
+      type: object
+      required: [cuadroFirmaId, estadoFirmaId, userId, observaciones]
+      properties:
+        cuadroFirmaId: { type: number }
+        estadoFirmaId: { type: number }
+        userId: { type: number }
+        observaciones: { type: string }
+    FirmaCuadroDto:
+      type: object
+      required: [userId, nombreUsuario, cuadroFirmaId, responsabilidadId, nombreResponsabilidad]
+      properties:
+        userId: { type: string }
+        nombreUsuario: { type: string }
+        cuadroFirmaId: { type: string }
+        responsabilidadId: { type: string }
+        nombreResponsabilidad: { type: string }
+    UpdateEstadoAsignacionDto:
+      type: object
+      required: [idCuadroFirma, idEstadoFirma, nombreEstadoFirma, idUser, nombreUser, observaciones]
+      properties:
+        idCuadroFirma: { type: number }
+        idEstadoFirma: { type: number }
+        nombreEstadoFirma: { type: string }
+        idUser: { type: number }
+        nombreUser: { type: string }
+        observaciones: { type: string }
+paths:
+  /auth/signup:
+    post:
+      summary: Registro de usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '201':
+          description: Tokens emitidos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+        '400':
+          description: Usuario ya existe
+  /auth/login:
+    post:
+      summary: Inicio de sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginDto'
+      responses:
+        '200':
+          description: Cookies establecidas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401':
+          description: Credenciales inválidas
+  /auth/refresh:
+    post:
+      summary: Refrescar tokens
+      responses:
+        '200':
+          description: Tokens refrescados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401':
+          description: Token inválido
+  /auth/logout:
+    post:
+      summary: Cerrar sesión
+      responses:
+        '204':
+          description: Sin contenido
+  /users:
+    post:
+      summary: Crear usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '201': { description: Usuario creado }
+    get:
+      summary: Listar usuarios
+      responses:
+        '200':
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: number }
+                    primer_nombre: { type: string }
+                    correo_institucional: { type: string }
+                    activo: { type: boolean }
+  /users/me:
+    get:
+      summary: Perfil propio
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Perfil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: number }
+                  nombre: { type: string }
+                  correo: { type: string }
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: number }
+                        nombre: { type: string }
+                        url: { type: string }
+                  roles:
+                    type: array
+                    items: { type: string }
+        '401':
+          description: No autorizado
+  /users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Obtener usuario
+      responses:
+        '200': { description: Usuario }
+    patch:
+      summary: Actualizar usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '200': { description: Usuario actualizado }
+    delete:
+      summary: Eliminar usuario
+      responses:
+        '200': { description: Usuario eliminado }
+  /roles:
+    get:
+      summary: Listar roles
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: all
+          schema: { type: string }
+      responses:
+        '200': { description: Lista de roles }
+    post:
+      summary: Crear rol
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRolDto'
+      responses:
+        '201': { description: Rol creado }
+  /roles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    patch:
+      summary: Actualizar rol
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRolDto'
+      responses:
+        '200': { description: Rol actualizado }
+    delete:
+      summary: Desactivar rol
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Rol desactivado }
+  /roles/{id}/restore:
+    patch:
+      summary: Restaurar rol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Rol restaurado }
+  /roles/{id}/paginas:
+    get:
+      summary: Obtener páginas de rol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Lista de ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paginaIds:
+                    type: array
+                    items: { type: number }
+    put:
+      summary: Reemplazar páginas de rol
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paginaIds:
+                  type: array
+                  items: { type: number }
+      responses:
+        '200': { description: Páginas actualizadas }
+  /paginas:
+    get:
+      summary: Listar páginas
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: all
+          schema: { type: string }
+      responses:
+        '200': { description: Lista de páginas }
+    post:
+      summary: Crear página
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaginaDto'
+      responses:
+        '201': { description: Página creada }
+  /paginas/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    patch:
+      summary: Actualizar página
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaginaDto'
+      responses:
+        '200': { description: Página actualizada }
+    delete:
+      summary: Desactivar página
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Página desactivada }
+  /paginas/{id}/restore:
+    patch:
+      summary: Restaurar página
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Página restaurada }
+  /documents:
+    post:
+      summary: Subir documento
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201': { description: Archivo almacenado }
+  /documents/cuadro-firmas/firmar:
+    post:
+      summary: Firmar documento
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                userId: { type: string }
+                nombreUsuario: { type: string }
+                cuadroFirmaId: { type: string }
+                responsabilidadId: { type: string }
+                nombreResponsabilidad: { type: string }
+      responses:
+        '200': { description: Documento firmado }
+  /documents/cuadro-firmas/documento/{id}:
+    patch:
+      summary: Actualizar documento asociado
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                idUser: { type: string }
+                observaciones: { type: string }
+      responses:
+        '200': { description: Documento actualizado }
+  /documents/analyze-pdf-test:
+    post:
+      summary: Analizar PDF
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: string
+                  format: binary
+      responses:
+        '200': { description: Texto extraído }
+  /documents/plantilla:
+    post:
+      summary: Crear plantilla
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlantillaDto'
+      responses:
+        '201': { description: Plantilla creada }
+  /documents/cuadro-firmas/documento-url:
+    get:
+      summary: Obtener URL del documento
+      parameters:
+        - in: query
+          name: fileName
+          schema: { type: string }
+      responses:
+        '200': { description: URL generada }
+  /documents/cuadro-firmas/{id}:
+    get:
+      summary: Detalle de cuadro de firmas
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Detalle }
+  /documents/cuadro-firmas:
+    post:
+      summary: Crear cuadro de firmas
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                responsables:
+                  type: string
+                  description: JSON de ResponsablesFirmaDto
+                titulo: { type: string }
+                descripcion: { type: string }
+                version: { type: string }
+                codigo: { type: string }
+                empresa_id: { type: string }
+                createdBy: { type: string }
+      responses:
+        '201': { description: Cuadro de firmas creado }
+  /documents/cuadro-firmas/historial:
+    post:
+      summary: Agregar historial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddHistorialCuadroFirmaDto'
+      responses:
+        '201': { description: Historial creado }
+  /documents/estados-firma:
+    get:
+      summary: Listar estados de firma
+      responses:
+        '200': { description: Lista }
+  /documents/cuadro-firmas/historial/{id}:
+    get:
+      summary: Historial de cuadro de firmas
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Historial }
+  /documents/cuadro-firmas/firmantes/{id}:
+    get:
+      summary: Firmantes del cuadro
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Firmantes }
+  /documents/cuadro-firmas/by-user/{userId}:
+    get:
+      summary: Asignaciones por usuario
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Asignaciones }
+  /documents/cuadro-firmas/documentos/supervision:
+    get:
+      summary: Documentos para supervisión
+      responses:
+        '200': { description: Documentos }
+  /documents/cuadro-firmas/estado:
+    patch:
+      summary: Cambiar estado de asignación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEstadoAsignacionDto'
+      responses:
+        '200': { description: Estado actualizado }
+  /documents/cuadro-firmas/{id}:
+    patch:
+      summary: Actualizar cuadro de firmas
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                responsables: { type: string, description: JSON }
+                titulo: { type: string }
+                descripcion: { type: string }
+                version: { type: string }
+                codigo: { type: string }
+                empresa_id: { type: string }
+                createdBy: { type: string }
+                observaciones: { type: string }
+      responses:
+        '200': { description: Cuadro actualizado }
+  /ai:
+    get:
+      summary: Endpoint de prueba
+      responses:
+        '200':
+          description: Cadena de prueba
+          content:
+            application/json:
+              schema:
+                type: string
