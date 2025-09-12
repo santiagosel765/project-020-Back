@@ -16,11 +16,26 @@ export class UsersService {
   }
 
   async findAll() {
-    return this.prisma.user.findMany();
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        primer_nombre: true,
+        correo_institucional: true,
+        activo: true,
+      },
+    });
   }
 
   findOne(id: number) {
-    return this.prisma.user.findUnique({ where: { id } });
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        primer_nombre: true,
+        correo_institucional: true,
+        activo: true,
+      },
+    });
   }
 
   update(id: number, updateUserDto: UpdateUserDto) {
@@ -34,12 +49,14 @@ export class UsersService {
   async me(id: number) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: {
-        rol_usuario: { include: { rol: true } },
+      select: {
+        id: true,
+        correo_institucional: true,
+        rol_usuario: { select: { rol: { select: { nombre: true } } } },
       },
     });
     if (!user) return null;
-    const roles = user.rol_usuario?.map((r: any) => r.rol.nombre) ?? [];
+    const roles = user.rol_usuario?.map((r) => r.rol.nombre) ?? [];
     return {
       id: user.id,
       email: user.correo_institucional,

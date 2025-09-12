@@ -4,6 +4,7 @@ import { SignaturePosition } from '../domain/value-objects/signature-position.vo
 import { PDFDocument, rgb } from 'pdf-lib';
 import { findPlaceholderCoordinates, pdfExtractText } from '../helpers';
 import { Signature } from 'src/documents/dto/sign-document.dto';
+import { formatCurrentDate } from 'src/helpers/formatDate';
 
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form
 @Injectable()
@@ -25,11 +26,12 @@ export class PdfLibRepository implements PdfRepository {
   async insertSignature(
     pdfBuffer: Buffer,
     signatureBuffer: Buffer,
+    placeholder: string,
     position: SignaturePosition,
   ): Promise<Buffer | null> {
     const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-    const res = await findPlaceholderCoordinates(pdfBuffer, 'FIRMA_DIGITAL');
+    const res = await findPlaceholderCoordinates(pdfBuffer, placeholder);
 
     if (!res) {
       return null;
@@ -38,13 +40,32 @@ export class PdfLibRepository implements PdfRepository {
     const signatureImage = await pdfDoc.embedPng(signatureBuffer);
     const page = pdfDoc.getPage(res.page);
 
+    const coordsX = res.x - 120;
+    const coordsY = res.y - 25;
     if (res) {
-      this.logger.log(`Coordenadas para la firma: (${res.x}, ${res.y})`);
+      this.logger.log(`Coordenadas para la firma: (${coordsX}, ${coordsY})`);
       page.drawImage(signatureImage, {
+        x: coordsX,
+        y: coordsY,
+        width: 100,
+        height: 40,
+      });
+
+      page.drawRectangle({
+        x: res.x,
+        y: res.y - 12,
+        width: 80,      // Ajusta el ancho según el largo del placeholder
+        height: 22,     // Ajusta la altura según el tamaño de la fuente
+        color: rgb(1, 1, 1), // Blanco
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
+      });
+
+      page.drawText(formatCurrentDate(), {
         x: res.x,
         y: res.y,
-        width: 150,
-        height: 50,
+        size: 7,
+        color: rgb(0, 0, 0),
       });
 
       return Buffer.from(await pdfDoc.save());

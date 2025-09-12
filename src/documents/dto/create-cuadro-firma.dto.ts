@@ -50,14 +50,10 @@ export class CreateCuadroFirmaDto {
     @IsString()
     codigo: string;
 
-    @IsNumber()
-    empresa_id: number;
+    @IsString()
+    empresa_id: string;
 
-    @IsNumber()
-    createdBy: number;
+    @IsString()
+    createdBy: string;
 
-    @ValidateNested()
-    @Type(() => ResponsablesFirmaDto)
-    @IsOptional()
-    responsables?: ResponsablesFirmaDto;
 }

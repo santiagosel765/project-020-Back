@@ -108,6 +108,6 @@ En desarrollo la documentación se expone en `http://localhost:3200/api/v1/docs`
 - `yarn lint`: Formatea y corrige el código.
 - `yarn test`: Ejecuta los tests.
 
----
+-----
 
 Documentación oficial de [NestJS](https://docs.nestjs.com/) y [Prisma](https://www.prisma.io/docs/).

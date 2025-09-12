@@ -14,6 +14,7 @@ export interface PdfRepository {
   insertSignature(
     pdfBuffer: Buffer,
     signatureBuffer: Buffer,
+    placeholder: string,
     position: SignaturePosition
   ): Promise<Buffer|null>;
   insertMultipleSignature(
