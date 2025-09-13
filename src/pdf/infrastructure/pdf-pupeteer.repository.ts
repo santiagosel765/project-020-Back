@@ -8,20 +8,19 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
   private logger = new Logger(PDFPuppeteerRepository.name);
 
   async generatePDFFromHTML(htmlContent: string): Promise<{ outputPath: string; fileName: string }> {
-    const timestamp = Date.now().toString();
-
+    const ts = Date.now().toString();
     const tmpFolder = path.join(process.cwd(), 'tmp', 'files');
     const chromeProfile = path.join(process.cwd(), 'tmp', 'chrome-profile');
     fs.mkdirSync(tmpFolder, { recursive: true });
     fs.mkdirSync(chromeProfile, { recursive: true });
 
-    const fileName = `CUADRO_FIRMAS_${timestamp}`;
+    const fileName = `CUADRO_FIRMAS_${ts}`;
     const outputPath = path.join(tmpFolder, `${fileName}.pdf`);
 
     const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    this.logger.log(`Chrome: ${executablePath ?? 'binario de Puppeteer'}`);
 
-
-    const launchOptions: LaunchOptions & { userDataDir?: string } = {
+    const launchOptions: LaunchOptions = {
       headless: true,
       executablePath: executablePath || undefined,
       userDataDir: chromeProfile,
@@ -35,8 +34,6 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
       ],
     };
 
-    this.logger.log(`Chrome: ${launchOptions.executablePath ?? 'bundled by Puppeteer'}`);
-
     let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
     try {
       browser = await puppeteer.launch(launchOptions);
@@ -44,9 +41,7 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
       await page.setContent(htmlContent, { waitUntil: 'networkidle0', timeout: 60000 });
       await page.pdf({ path: outputPath, format: 'A4', printBackground: true });
 
-      if (!fs.existsSync(outputPath)) {
-        throw new Error(`No se generó el PDF en: ${outputPath}`);
-      }
+      if (!fs.existsSync(outputPath)) throw new Error(`No se generó el PDF en: ${outputPath}`);
 
       this.logger.log('Archivo PDF generado exitosamente');
       return { outputPath, fileName };
@@ -60,10 +55,9 @@ export class PDFPuppeteerRepository implements PdfGenerationRepository {
   }
 
   replacePlaceholders(htmlContent: string, placeholders: Record<string, string>) {
-    let htmlResult = htmlContent;
-    for (const [key, value] of Object.entries(placeholders)) {
-      htmlResult = htmlResult.replaceAll(key, value);
-    }
-    return htmlResult;
+    let html = htmlContent;
+    for (const [k, v] of Object.entries(placeholders)) html = html.replaceAll(k, v);
+    return html;
   }
 }
+

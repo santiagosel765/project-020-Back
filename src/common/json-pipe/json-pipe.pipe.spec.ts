@@ -1,7 +1,7 @@
-import { JsonPipePipe } from './json-pipe.pipe';
+import { JsonParsePipe } from './json-pipe.pipe';
 
-describe('JsonPipePipe', () => {
+describe('JsonParsePipe', () => {
   it('should be defined', () => {
-    expect(new JsonPipePipe()).toBeDefined();
+    expect(new JsonParsePipe()).toBeDefined();
   });
 });
