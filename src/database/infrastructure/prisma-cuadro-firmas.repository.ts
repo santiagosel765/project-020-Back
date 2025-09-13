@@ -35,6 +35,7 @@ import { UpdateEstadoAsignacionDto } from 'src/documents/dto/update-estado-asign
 import { Asignacion } from '../domain/interfaces/cuadro-firmas.interface';
 import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { withPrismaRetry } from 'src/utils/prisma-retry';
 
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
@@ -56,14 +57,18 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     formattedHtml: string;
     fileName: string;
   }> {
-    const dbPlantilla = await this.prisma.plantilla.findFirst({
-      where: {
-        empresa_id: +createCuadroFirmaDto.empresa_id,
-      },
-      include: {
-        empresa: true,
-      },
-    });
+    const dbPlantilla = await withPrismaRetry(
+      () =>
+        this.prisma.plantilla.findFirst({
+          where: {
+            empresa_id: +createCuadroFirmaDto.empresa_id,
+          },
+          include: {
+            empresa: true,
+          },
+        }),
+      this.prisma,
+    );
 
     if (!dbPlantilla) {
       throw new Error(
@@ -129,35 +134,43 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     createdBy: number,
   ): Promise<cuadro_firma> {
     try {
-      // Guardar cuadro de firmas en DB
-      const cuadroFirmaDB = await this.prisma.cuadro_firma.create({
-        data: {
-          titulo: createCuadroFirmaDto.titulo,
-          descripcion: createCuadroFirmaDto.descripcion,
-          codigo: createCuadroFirmaDto.codigo,
-          version: createCuadroFirmaDto.version,
-          pdf: pdfContent,
-          empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
-          plantilla: { connect: { id: plantilladId } },
-          user: { connect: { id: createdBy } },
-          pdf_html: formattedHtml,
-          nombre_pdf: fileName,
-          url_pdf: cuadroFirmasKey,
-        },
-      });
+      return await withPrismaRetry(
+        () =>
+          this.prisma.$transaction(async (tx) => {
+            const cuadroFirma = await tx.cuadro_firma.create({
+              data: {
+                titulo: createCuadroFirmaDto.titulo,
+                descripcion: createCuadroFirmaDto.descripcion,
+                codigo: createCuadroFirmaDto.codigo,
+                version: createCuadroFirmaDto.version,
+                pdf: pdfContent,
+                empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
+                plantilla: { connect: { id: plantilladId } },
+                user: { connect: { id: createdBy } },
+                pdf_html: formattedHtml,
+              },
+            });
 
-      // Guardar documento
-      await this.prisma.documento.create({
-        data: {
-          cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
-          pdf: documentoPDF,
-          user: { connect: { id: createdBy } },
-          nombre_archivo: bucketFileName,
-          url_documento: bucketFileName,
-        },
-      });
+            await tx.documento.create({
+              data: {
+                cuadro_firma: { connect: { id: cuadroFirma.id } },
+                pdf: documentoPDF,
+                user: { connect: { id: createdBy } },
+                nombre_archivo: bucketFileName,
+                url_documento: bucketFileName,
+              },
+            });
 
-      return cuadroFirmaDB;
+            return tx.cuadro_firma.update({
+              where: { id: cuadroFirma.id },
+              data: {
+                url_pdf: cuadroFirmasKey,
+                nombre_pdf: fileName,
+              },
+            });
+          }),
+        this.prisma,
+      );
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -622,11 +635,14 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
   async validarOrdenFirma(firmaCuadroDto: FirmaCuadroDto) {
     // ? Obtener la responsabilidad actual y su orden
-    const responsabilidadActual =
-      await this.prisma.responsabilidad_firma.findUnique({
-        where: { nombre: firmaCuadroDto.nombreResponsabilidad },
-        select: { orden: true },
-      });
+    const responsabilidadActual = await withPrismaRetry(
+      () =>
+        this.prisma.responsabilidad_firma.findUnique({
+          where: { nombre: firmaCuadroDto.nombreResponsabilidad },
+          select: { orden: true },
+        }),
+      this.prisma,
+    );
 
     if (!responsabilidadActual || responsabilidadActual.orden === null) {
       throw new HttpException(
@@ -636,23 +652,31 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     }
 
     // ? Buscar todas las responsabilidades previas (orden menor)
-    const responsabilidadesPrevias =
-      await this.prisma.responsabilidad_firma.findMany({
-        where: {
-          orden: { lt: responsabilidadActual.orden },
-        },
-        select: { nombre: true },
-      });
+    const ordenActual = responsabilidadActual.orden;
+    const responsabilidadesPrevias = await withPrismaRetry(
+      () =>
+        this.prisma.responsabilidad_firma.findMany({
+          where: {
+            orden: { lt: ordenActual },
+          },
+          select: { nombre: true },
+        }),
+      this.prisma,
+    );
 
     // ? Por cada responsabilidad previa, valida que todos hayan firmado
     for (const previa of responsabilidadesPrevias) {
-      const firmantesPrevios = await this.prisma.cuadro_firma_user.findMany({
-        where: {
-          cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
-          responsabilidad_firma: { nombre: previa.nombre },
-          estaFirmado: false,
-        },
-      });
+      const firmantesPrevios = await withPrismaRetry(
+        () =>
+          this.prisma.cuadro_firma_user.findMany({
+            where: {
+              cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
+              responsabilidad_firma: { nombre: previa.nombre },
+              estaFirmado: false,
+            },
+          }),
+        this.prisma,
+      );
       if (firmantesPrevios.length > 0) {
         throw new HttpException(
           `No puedes firmar hasta que todos los responsables de "${previa.nombre}" hayan firmado.`,
@@ -671,16 +695,20 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     data: { [key: string]: any },
   ) {
     try {
-      await this.prisma.cuadro_firma_user.update({
-        where: {
-          cuadro_firma_id_user_id_responsabilidad_id: {
-            cuadro_firma_id: keys.cuadroFirmaId,
-            user_id: keys.userId,
-            responsabilidad_id: keys.responsabilidadId,
-          },
-        },
-        data,
-      });
+      await withPrismaRetry(
+        () =>
+          this.prisma.cuadro_firma_user.update({
+            where: {
+              cuadro_firma_id_user_id_responsabilidad_id: {
+                cuadro_firma_id: keys.cuadroFirmaId,
+                user_id: keys.userId,
+                responsabilidad_id: keys.responsabilidadId,
+              },
+            },
+            data,
+          }),
+        this.prisma,
+      );
     } catch (error) {
       throw new HttpException(
         `Problemas al actualizar cuadro_firma_user: ${error}.`,
