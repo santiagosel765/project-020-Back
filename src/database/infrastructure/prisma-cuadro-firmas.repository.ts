@@ -1,4 +1,11 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  ConflictException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import {
@@ -121,35 +128,47 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     bucketFileName: string,
     createdBy: number,
   ): Promise<cuadro_firma> {
-    // Guardar cuadro de firmas en DB
-    const cuadroFirmaDB = await this.prisma.cuadro_firma.create({
-      data: {
-        titulo: createCuadroFirmaDto.titulo,
-        descripcion: createCuadroFirmaDto.descripcion,
-        codigo: createCuadroFirmaDto.codigo,
-        version: createCuadroFirmaDto.version,
-        pdf: pdfContent,
-        empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
-        plantilla: { connect: { id: plantilladId } },
-        user: { connect: { id: createdBy } },
-        pdf_html: formattedHtml,
-        nombre_pdf: fileName,
-        url_pdf: cuadroFirmasKey,
-      },
-    });
+    try {
+      // Guardar cuadro de firmas en DB
+      const cuadroFirmaDB = await this.prisma.cuadro_firma.create({
+        data: {
+          titulo: createCuadroFirmaDto.titulo,
+          descripcion: createCuadroFirmaDto.descripcion,
+          codigo: createCuadroFirmaDto.codigo,
+          version: createCuadroFirmaDto.version,
+          pdf: pdfContent,
+          empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
+          plantilla: { connect: { id: plantilladId } },
+          user: { connect: { id: createdBy } },
+          pdf_html: formattedHtml,
+          nombre_pdf: fileName,
+          url_pdf: cuadroFirmasKey,
+        },
+      });
 
-    // Guardar documento
-    await this.prisma.documento.create({
-      data: {
-        cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
-        pdf: documentoPDF,
-        user: { connect: { id: createdBy } },
-        nombre_archivo: bucketFileName,
-        url_documento: bucketFileName,
-      },
-    });
+      // Guardar documento
+      await this.prisma.documento.create({
+        data: {
+          cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
+          pdf: documentoPDF,
+          user: { connect: { id: createdBy } },
+          nombre_archivo: bucketFileName,
+          url_documento: bucketFileName,
+        },
+      });
 
-    return cuadroFirmaDB;
+      return cuadroFirmaDB;
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'El código ya está en uso. Elige otro código.',
+        );
+      }
+      throw e;
+    }
   }
 
   async updateCuadroFirmas(
