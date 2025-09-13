@@ -1,9 +1,12 @@
 import {
+  ConflictException,
   HttpException,
   HttpStatus,
   Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PDF_REPOSITORY } from '../pdf/domain/repositories/pdf.repository';
 import type { PdfRepository } from '../pdf/domain/repositories/pdf.repository';
@@ -39,6 +42,7 @@ import {
 } from 'src/database/domain/repositories/documentos.repository';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { withPrismaRetry } from 'src/utils/prisma-retry';
 
 @Injectable()
 export class DocumentsService {
@@ -335,10 +339,19 @@ export class DocumentsService {
         formattedHtml,
         fileName,
       };
-    } catch (error) {
-      return this.handleDBErrors(
-        error,
-        `Problemas al generar cuadro de firmas: ${error}`,
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      if (
+        error?.code === 'P1001' ||
+        error?.code === 'P1002' ||
+        error?.code === 'P1017' ||
+        error?.message?.includes('ECONNRESET') ||
+        error?.message?.includes('server has closed the connection')
+      ) {
+        throw new ServiceUnavailableException('Intente de nuevo');
+      }
+      throw new InternalServerErrorException(
+        'Problemas al generar cuadro de firmas',
       );
     }
   }
@@ -361,30 +374,37 @@ export class DocumentsService {
     documentoPDF: Buffer,
   ): Promise<cuadro_firma> {
     try {
+      const exists = await withPrismaRetry(
+        () =>
+          this.prisma.cuadro_firma.findUnique({
+            where: { codigo: createCuadroFirmaDto.codigo },
+          }),
+        this.prisma,
+      );
+      if (exists) {
+        throw new ConflictException(
+          'El código ya está en uso. Elige otro código.',
+        );
+      }
+
       const { pdfContent, plantilladId, formattedHtml, fileName } =
         await this.generarCuadroFirmas(createCuadroFirmaDto, responsables);
 
-      // ? Subir cuadro de firmas a S3
       const { fileKey: cuadroFirmasKey } = await this.awsService.uploadFile(
         pdfContent,
         fileName,
       );
 
-      const timestamp: number = Date.now();
-      const timestampString: string = timestamp.toString();
+      const timestampString = Date.now().toString();
       const bucketFileName = `DOCUMENTO_PDF_${timestampString}`;
-      const { fileKey } = await this.awsService.uploadFile(
-        documentoPDF,
-        bucketFileName,
-      );
+      await this.awsService.uploadFile(documentoPDF, bucketFileName);
 
-      // ? Guardar cuadro de firmas en DB, por defecto inicia en estado "Pendiente"
       const cuadroFirmaDB =
         await this.cuadroFirmasRepository.guardarCuadroFirmas(
           createCuadroFirmaDto,
           responsables,
           documentoPDF,
-          null,
+          pdfContent,
           plantilladId,
           formattedHtml,
           fileName,
@@ -393,36 +413,25 @@ export class DocumentsService {
           +createCuadroFirmaDto.createdBy,
         );
 
-      if (!cuadroFirmaDB) {
-        throw new HttpException(
-          `Problemas al generar cuadro de firmas`,
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-
       await this.asignarResponsablesCuadroFirmas(
         responsables,
         cuadroFirmaDB.id,
       );
 
-      // ? Subir documento negocio a S3
-
-      // ? Crear documento
-      await this.prisma.documento.create({
-        data: {
-          cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
-          pdf: documentoPDF,
-          user: { connect: { id: cuadroFirmaDB.created_by! } },
-          nombre_archivo: bucketFileName,
-          url_documento: fileKey,
-        },
-      });
-
       return cuadroFirmaDB;
-    } catch (error) {
-      return this.handleDBErrors(
-        error,
-        `Problemas al generar cuadro de firmas: ${error}`,
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      if (
+        error?.code === 'P1001' ||
+        error?.code === 'P1002' ||
+        error?.code === 'P1017' ||
+        error?.message?.includes('ECONNRESET') ||
+        error?.message?.includes('server has closed the connection')
+      ) {
+        throw new ServiceUnavailableException('Intente de nuevo');
+      }
+      throw new InternalServerErrorException(
+        'Problemas al generar cuadro de firmas',
       );
     }
   }

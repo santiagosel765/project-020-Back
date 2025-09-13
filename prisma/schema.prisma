@@ -1,6 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -24,7 +25,7 @@ model cuadro_firma {
   titulo                        String                          @db.VarChar
   descripcion                   String?
   version                       String?                         @db.VarChar
-  codigo                        String?                         @unique @db.VarChar
+  codigo                        String?                         @db.VarChar
   pdf                           Bytes?
   empresa_id                    Int?
   created_by                    Int?
@@ -32,7 +33,7 @@ model cuadro_firma {
   plantilla_id                  Int?                            @default(4)
   add_date                      DateTime?                       @default(now()) @db.Timestamp(6)
   updated_at                    DateTime?                       @default(now()) @db.Timestamp(6)
-  pdf_html                      String?
+  pdf_html                      String?                         @map("pdf_html")
   nombre_pdf                    String?
   url_pdf                       String?
   active                        Boolean?                        @default(true)
@@ -43,6 +44,8 @@ model cuadro_firma {
   cuadro_firma_estado_historial cuadro_firma_estado_historial[]
   cuadro_firma_user             cuadro_firma_user[]
   documento                     documento[]
+
+  @@unique([codigo])
 }
 
 model cuadro_firma_estado_historial {
@@ -62,7 +65,7 @@ model cuadro_firma_user {
   cuadro_firma_id       Int
   user_id               Int
   responsabilidad_id    Int
-  estaFirmado           Boolean?              @default(false)
+  estaFirmado           Boolean               @default(false) @map("esta_firmado")
   fecha_firma           DateTime?
   orden                 Int?
   cuadro_firma          cuadro_firma          @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -81,7 +84,7 @@ model documento {
   created_by      Int?
   add_date        DateTime?    @default(now()) @db.Timestamp(6)
   updated_at      DateTime?    @default(now()) @db.Timestamp(6)
-  url_documento   String?
+  url_documento   String?       @map("url_documento")
   updated_by      Int?
   user            user?        @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_documento_created_by")
   cuadro_firma    cuadro_firma @relation(fields: [cuadro_firma_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_documento_cuadro_firma")
