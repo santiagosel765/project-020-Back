@@ -26,18 +26,27 @@ async function getPagesByUrls(urls: string[]) {
   });
 }
 
+
 async function setRolePagesByUrls(rolId: number, urls: string[]) {
   const pages = await getPagesByUrls(urls);
   const pageIds = pages.map((p) => p.id);
-  await prisma.$transaction(async (tx) => {
-    await tx.pagina_rol.deleteMany({ where: { rol_id: rolId } });
-    if (pageIds.length > 0) {
-      await tx.pagina_rol.createMany({
-        data: pageIds.map((pagina_id) => ({ rol_id: rolId, pagina_id })),
-        skipDuplicates: true,
-      });
-    }
+
+  if (pageIds.length === 0) return;
+
+  const existing = await prisma.pagina_rol.findMany({
+    where: { rol_id: rolId, pagina_id: { in: pageIds } },
+    select: { pagina_id: true },
   });
+  const existingIds = new Set(existing.map((e) => e.pagina_id));
+
+  const missing = pageIds.filter((id) => !existingIds.has(id));
+
+  if (missing.length > 0) {
+    await prisma.pagina_rol.createMany({
+      data: missing.map((pagina_id) => ({ rol_id: rolId, pagina_id })),
+      skipDuplicates: true,
+    });
+  }
 }
 
 const PAGES_DATA = [
@@ -77,32 +86,28 @@ async function main() {
   for (const page of PAGES_DATA) {
     await upsertPage(page);
   }
-  const allUrls = PAGES_DATA.map((p) => p.url);
-  await prisma.pagina.updateMany({
-    where: { url: { notIn: allUrls } },
-    data: { activo: false },
-  });
 
   const activePages = await prisma.pagina.count({ where: { activo: true } });
-  console.log(`Active pages: ${activePages}`);
+  console.log(`Active pages (conteo actual en BD): ${activePages}`);
 
+  const allUrls = PAGES_DATA.map((p) => p.url);
   await setRolePagesByUrls(roles.ADMIN.id, allUrls);
   const adminAssigned = await prisma.pagina_rol.count({
     where: { rol_id: roles.ADMIN.id },
   });
-  console.log(`ADMIN assigned pages: ${adminAssigned}`);
+  console.log(`ADMIN assigned pages (total actual): ${adminAssigned}`);
 
   await setRolePagesByUrls(roles.GESTOR.id, GESTOR_URLS);
   const gestorAssigned = await prisma.pagina_rol.count({
     where: { rol_id: roles.GESTOR.id },
   });
-  console.log(`GESTOR assigned pages: ${gestorAssigned}`);
+  console.log(`GESTOR assigned pages (total actual): ${gestorAssigned}`);
 
   await setRolePagesByUrls(roles.USUARIO.id, USUARIO_URLS);
   const usuarioAssigned = await prisma.pagina_rol.count({
     where: { rol_id: roles.USUARIO.id },
   });
-  console.log(`USUARIO assigned pages: ${usuarioAssigned}`);
+  console.log(`USUARIO assigned pages (total actual): ${usuarioAssigned}`);
 
   const adminUser = await prisma.user.upsert({
     where: { correo_institucional: 'admin@local' },
