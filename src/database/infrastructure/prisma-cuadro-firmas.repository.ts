@@ -123,62 +123,96 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
   async guardarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
-    responsables: ResponsablesFirmaDto,
-    documentoPDF: Buffer,
-    pdfContent: Buffer | null,
+    _responsables: ResponsablesFirmaDto,
+    documentoPDF: Buffer,       // opcional: solo si también quieres persistirlo en DB
+    pdfContent: Buffer | null,  // opcional: idem
     plantilladId: number,
     formattedHtml: string,
-    fileName: string,
-    cuadroFirmasKey: string,
-    bucketFileName: string,
+    fileName: string,           // nombre del PDF en S3
+    cuadroFirmasKey: string,    // key del PDF en S3
+    bucketFileName: string,     // key del documento adjunto en S3
     createdBy: number,
   ): Promise<cuadro_firma> {
     try {
-      return await withPrismaRetry(
+      // 1) Transacción rápida: SOLO metadatos (nada de BLOBs)
+      const { cfId, docId } = await withPrismaRetry(
         () =>
-          this.prisma.$transaction(async (tx) => {
-            const cuadroFirma = await tx.cuadro_firma.create({
-              data: {
-                titulo: createCuadroFirmaDto.titulo,
-                descripcion: createCuadroFirmaDto.descripcion,
-                codigo: createCuadroFirmaDto.codigo,
-                version: createCuadroFirmaDto.version,
-                pdf: pdfContent,
-                empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
-                plantilla: { connect: { id: plantilladId } },
-                user: { connect: { id: createdBy } },
-                pdf_html: formattedHtml,
-              },
-            });
+          this.prisma.$transaction(
+            async (tx) => {
+              const cf = await tx.cuadro_firma.create({
+                data: {
+                  titulo:      createCuadroFirmaDto.titulo,
+                  descripcion: createCuadroFirmaDto.descripcion,
+                  codigo:      createCuadroFirmaDto.codigo,
+                  version:     createCuadroFirmaDto.version,
 
-            await tx.documento.create({
-              data: {
-                cuadro_firma: { connect: { id: cuadroFirma.id } },
-                pdf: documentoPDF,
-                user: { connect: { id: createdBy } },
-                nombre_archivo: bucketFileName,
-                url_documento: bucketFileName,
-              },
-            });
+                  // ❌ NO guardes BLOBs aquí
+                  // pdf: pdfContent,
 
-            return tx.cuadro_firma.update({
-              where: { id: cuadroFirma.id },
-              data: {
-                url_pdf: cuadroFirmasKey,
-                nombre_pdf: fileName,
-              },
-            });
-          }),
-        this.prisma,
+                  // ✅ metadatos / html
+                  pdf_html:   formattedHtml,
+                  nombre_pdf: fileName,
+                  url_pdf:    cuadroFirmasKey,
+
+                  empresa:   { connect: { id: +createCuadroFirmaDto.empresa_id } },
+                  plantilla: { connect: { id: plantilladId } },
+                  user:      { connect: { id: createdBy } },
+                },
+              });
+
+              const doc = await tx.documento.create({
+                data: {
+                  cuadro_firma:   { connect: { id: cf.id } },
+
+                  // ❌ NO BLOB aquí
+                  // pdf: documentoPDF,
+
+                  nombre_archivo: bucketFileName,
+                  url_documento:  bucketFileName,
+                  user:           { connect: { id: createdBy } },
+                },
+              });
+
+              // Devuelve los IDs para actualizarlos FUERA de la transacción
+              return { cfId: cf.id, docId: doc.id };
+            },
+            { timeout: 200_000, maxWait: 5_000 } // sube el timeout de la transacción
+          ),
+        this.prisma
       );
-    } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'El código ya está en uso. Elige otro código.',
+
+      // 2) (Opcional) Escribe BLOBs FUERA de la transacción (no bloquea, no timeouts)
+      /* if (pdfContent) {
+        await withPrismaRetry(
+          () =>
+            this.prisma.cuadro_firma.update({
+              where: { id: cfId },
+              data: { pdf: pdfContent },
+            }),
+          this.prisma
         );
+      }
+
+      if (documentoPDF) {
+        await withPrismaRetry(
+          () =>
+            this.prisma.documento.update({
+              where: { id: docId }, 
+              data: { pdf: documentoPDF },
+            }),
+          this.prisma
+        );
+      }
+ */
+      // 3) Devuelve el cuadro_firma completo (si lo necesitas para el flujo)
+      return await withPrismaRetry(
+        () => this.prisma.cuadro_firma.findUniqueOrThrow({ where: { id: cfId } }),
+        this.prisma
+      );
+
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('El código ya está en uso. Elige otro código.');
       }
       throw e;
     }

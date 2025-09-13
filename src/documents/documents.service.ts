@@ -375,16 +375,13 @@ export class DocumentsService {
   ): Promise<cuadro_firma> {
     try {
       const exists = await withPrismaRetry(
-        () =>
-          this.prisma.cuadro_firma.findUnique({
-            where: { codigo: createCuadroFirmaDto.codigo },
-          }),
+        () => this.prisma.cuadro_firma.findUnique({
+          where: { codigo: createCuadroFirmaDto.codigo },
+        }),
         this.prisma,
       );
       if (exists) {
-        throw new ConflictException(
-          'El código ya está en uso. Elige otro código.',
-        );
+        throw new ConflictException('El código ya está en uso. Elige otro código.');
       }
 
       const { pdfContent, plantilladId, formattedHtml, fileName } =
