@@ -2,522 +2,243 @@
 
 La API expone sus endpoints bajo el prefijo `/api/v1`.
 
-- **Autenticación:** Bearer JWT via cabecera `Authorization`.
-- **Cabeceras comunes:** `Content-Type: application/json`, `Accept: application/json`.
-- Para subir archivos usar `multipart/form-data`.
-
-## Índice
-- [Auth](#auth)
-- [Users](#users)
-- [Roles](#roles)
-- [Paginas](#paginas)
-- [Documents](#documents)
-- [AI](#ai)
-
-## Auth
-
-| Método | Ruta | Auth/Guards | Body DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| POST  | /auth/signup | none | CreateUserDto | - | `{access_token, refresh_token}` | 400 Usuario ya existe |
-| POST  | /auth/login  | none | LoginDto | - | `{ok: true}` (cookies) | 401 Credenciales inválidas |
-| POST  | /auth/refresh| none | - | cookies | `{ok: true}` (cookies) | 401 Token inválido |
-| POST  | /auth/logout | none | - | - | 204 sin cuerpo | - |
-
-### POST /auth/signup
-Registra un nuevo usuario y devuelve tokens.
-
-**Body:**
-```
-{
-  "primer_nombre": "string",
-  "primer_apellido": "string",
-  "correo_institucional": "string",
-  "codigo_empleado": "string",
-  "password": "string"
-}
-```
-**Respuesta:**
-```
-{
-  "access_token": "string",
-  "refresh_token": "string"
-}
-```
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"primer_nombre":"Ana","primer_apellido":"Pérez","correo_institucional":"ana@correo.com","codigo_empleado":"EMP1","password":"secreta"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/auth/signup', {
-  method: 'POST',
-  headers: {'Content-Type':'application/json'},
-  body: JSON.stringify({primer_nombre:'Ana',primer_apellido:'Pérez',correo_institucional:'ana@correo.com',codigo_empleado:'EMP1',password:'secreta'})
-});
-```
-
-### POST /auth/login
-Inicia sesión, emite cookies de acceso y refresh.
-
-**Body:**
-```
-{
-  "email": "string",
-  "password": "string"
-}
-```
-**Respuesta:** `{ "ok": true }`
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"ana@correo.com","password":"secreta"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/auth/login', {
-  method: 'POST',
-  headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({email:'ana@correo.com',password:'secreta'})
-});
-```
-
-### POST /auth/refresh
-Regenera tokens a partir de la cookie de refresh.
-
-**Respuesta:** `{ "ok": true }`
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/auth/refresh --cookie "refresh_token=TOKEN"
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/auth/refresh', {method:'POST', credentials:'include'});
-```
-
-### POST /auth/logout
-Limpia las cookies de autenticación.
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/auth/logout
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/auth/logout', {method:'POST'});
-```
-
-## Users
-
-| Método | Ruta | Auth/Guards | Body DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| POST | /users | none | CreateUserDto | - | Usuario creado | 400 Datos inválidos |
-| GET | /users | none | - | - | Lista de usuarios | - |
-| GET | /users/me | JwtAuthGuard | - | - | MeResponseDto | 401 No autorizado |
-| GET | /users/:id | none | - | id | Usuario | 404 No encontrado |
-| PATCH | /users/:id | none | UpdateUserDto | id | Usuario actualizado | 404 No encontrado |
-| DELETE | /users/:id | none | - | id | Usuario eliminado | 404 No encontrado |
-
-### POST /users
-Crea un usuario.
-
-**Body:** igual que `CreateUserDto`.
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/users \
-  -H 'Content-Type: application/json' \
-  -d '{"primer_nombre":"Ana","primer_apellido":"Pérez","correo_institucional":"ana@correo.com","codigo_empleado":"EMP1","password":"secreta"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users', {
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({primer_nombre:'Ana',primer_apellido:'Pérez',correo_institucional:'ana@correo.com',codigo_empleado:'EMP1',password:'secreta'})
-});
-```
-
-### GET /users
-Devuelve usuarios activos con campos básicos.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/users
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users');
-```
-
-### GET /users/me
-Requiere JWT. Devuelve perfil propio con páginas y roles.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/users/me \
-  -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users/me',{headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### GET /users/:id
-Obtiene usuario por id.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/users/1
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users/1');
-```
-
-### PATCH /users/:id
-Actualiza campos.
-
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/users/1 \
-  -H 'Content-Type: application/json' \
-  -d '{"primer_nombre":"Nuevo"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users/1',{
-  method:'PATCH',
-  headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({primer_nombre:'Nuevo'})
-});
-```
-
-### DELETE /users/:id
-Elimina usuario.
-
-**curl**
-```
-curl -X DELETE http://localhost:3000/api/v1/users/1
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/users/1',{method:'DELETE'});
-```
-
-## Roles
-
-| Método | Ruta | Auth/Guards | Body DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| GET | /roles | JwtAuthGuard | - | `all` | Lista de roles | - |
-| POST | /roles | JwtAuthGuard | CreateRolDto | - | Rol creado | 409 Nombre duplicado |
-| PATCH | /roles/:id | JwtAuthGuard | UpdateRolDto | id | Rol actualizado | 404 No encontrado |
-| GET | /roles/:id/paginas | JwtAuthGuard | - | id | `{paginaIds: number[]}` | 404 Rol inexistente |
-| PUT | /roles/:id/paginas | JwtAuthGuard | `{paginaIds:number[]}` | id | `{paginaIds:number[]}` | 400 Páginas inválidas |
-| DELETE | /roles/:id | JwtAuthGuard | - | id | Rol desactivado | 404 No encontrado |
-| PATCH | /roles/:id/restore | JwtAuthGuard | - | id | Rol reactivado | 404 No encontrado |
-
-### GET /roles
-Lista roles; `all=1` para incluir inactivos.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/roles -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles',{headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### POST /roles
-Crea un rol.
-
-**Body:**
-```
-{
-  "nombre":"string",
-  "descripcion?":"string",
-  "activo?":true,
-  "created_by?":1
-}
-```
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/roles \
- -H 'Authorization: Bearer TOKEN' \
- -H 'Content-Type: application/json' \
- -d '{"nombre":"Admin"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer TOKEN'},body:JSON.stringify({nombre:'Admin'})});
-```
-
-### PATCH /roles/:id
-Actualiza un rol.
-
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/roles/1 \
- -H 'Authorization: Bearer TOKEN' \
- -H 'Content-Type: application/json' \
- -d '{"descripcion":"Nuevo"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles/1',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer TOKEN'},body:JSON.stringify({descripcion:'Nuevo'})});
-```
-
-### GET /roles/:id/paginas
-Obtiene ids de páginas del rol.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/roles/1/paginas -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles/1/paginas',{headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### PUT /roles/:id/paginas
-Reemplaza páginas del rol.
-
-**Body:** `{ "paginaIds": [1,2] }`
-
-**curl**
-```
-curl -X PUT http://localhost:3000/api/v1/roles/1/paginas \
- -H 'Authorization: Bearer TOKEN' \
- -H 'Content-Type: application/json' \
- -d '{"paginaIds":[1,2]}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles/1/paginas',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer TOKEN'},body:JSON.stringify({paginaIds:[1,2]})});
-```
-
-### DELETE /roles/:id
-Desactiva un rol.
-
-**curl**
-```
-curl -X DELETE http://localhost:3000/api/v1/roles/1 -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles/1',{method:'DELETE',headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### PATCH /roles/:id/restore
-Restaura un rol.
-
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/roles/1/restore -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/roles/1/restore',{method:'PATCH',headers:{Authorization:'Bearer TOKEN'}});
-```
-
-## Paginas
-
-| Método | Ruta | Auth/Guards | Body DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| GET | /paginas | JwtAuthGuard | - | `all` | Lista de páginas | - |
-| POST | /paginas | JwtAuthGuard | CreatePaginaDto | - | Página creada | 409 Nombre duplicado |
-| PATCH | /paginas/:id | JwtAuthGuard | UpdatePaginaDto | id | Página actualizada | 404 No encontrada |
-| DELETE | /paginas/:id | JwtAuthGuard | - | id | Página desactivada | 404 No encontrada |
-| PATCH | /paginas/:id/restore | JwtAuthGuard | - | id | Página reactivada | 404 No encontrada |
-
-### GET /paginas
-Listado de páginas; `all=1` para incluir inactivas.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/paginas -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/paginas',{headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### POST /paginas
-Crea una página.
-
-**Body:**
-```
-{
- "nombre":"string",
- "url":"string",
- "descripcion?":"string",
- "activo?":true
-}
-```
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/paginas \
- -H 'Authorization: Bearer TOKEN' \
- -H 'Content-Type: application/json' \
- -d '{"nombre":"Inicio","url":"/inicio"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/paginas',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer TOKEN'},body:JSON.stringify({nombre:'Inicio',url:'/inicio'})});
-```
-
-### PATCH /paginas/:id
-Actualiza una página.
-
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/paginas/1 \
- -H 'Authorization: Bearer TOKEN' \
- -H 'Content-Type: application/json' \
- -d '{"descripcion":"Nueva"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/paginas/1',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer TOKEN'},body:JSON.stringify({descripcion:'Nueva'})});
-```
-
-### DELETE /paginas/:id
-Desactiva una página.
-
-**curl**
-```
-curl -X DELETE http://localhost:3000/api/v1/paginas/1 -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/paginas/1',{method:'DELETE',headers:{Authorization:'Bearer TOKEN'}});
-```
-
-### PATCH /paginas/:id/restore
-Restaura una página.
-
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/paginas/1/restore -H 'Authorization: Bearer TOKEN'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/paginas/1/restore',{method:'PATCH',headers:{Authorization:'Bearer TOKEN'}});
-```
-
-## Documents
-
-| Método | Ruta | Auth/Guards | Body/DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| POST | /documents | - | file `file` | - | `{fileKey}` | 500 Error de carga |
-| POST | /documents/cuadro-firmas/firmar | - | file `file`, FirmaCuadroDto | - | `{status,data}` | 400 Orden inválido |
-| PATCH | /documents/cuadro-firmas/documento/:id | - | file `file`, idUser, observaciones | id | `{status,data}` | 500 Error al actualizar |
-| POST | /documents/analyze-pdf-test | - | file `files` | - | Texto del PDF | 400 Error |
-| POST | /documents/plantilla | - | CreatePlantillaDto | - | `{status,data}` | 400 Plantilla existe |
-| GET | /documents/cuadro-firmas/documento-url | - | - | fileName | `{status,data}` | 404 No existe |
-| GET | /documents/cuadro-firmas/:id | - | - | id | Detalle de cuadro de firmas | 404 No existe |
-| POST | /documents/cuadro-firmas | - | file `file`, CreateCuadroFirmaDto, responsables | - | `{status,data}` | 500 Error |
-| POST | /documents/cuadro-firmas/historial | - | AddHistorialCuadroFirmaDto | - | `{status,data}` | 400 Error |
-| GET | /documents/estados-firma | - | - | - | Lista de estados | - |
-| GET | /documents/cuadro-firmas/historial/:id | - | - | id + paginación | `{status,data}` | 400 Error |
-| GET | /documents/cuadro-firmas/firmantes/:id | - | - | id | `{status,data}` | 400 Error |
-| GET | /documents/cuadro-firmas/by-user/:userId | - | - | userId + paginación | `{status,data}` | 400 Sin asignaciones |
-| GET | /documents/cuadro-firmas/documentos/supervision | - | - | paginación | `{status,data}` | 400 Sin registros |
-| PATCH | /documents/cuadro-firmas/estado | - | UpdateEstadoAsignacionDto | - | `{status,data}` | 400 Error |
-| PATCH | /documents/cuadro-firmas/:id | - | UpdateCuadroFirmaDto + responsables | id | `{status,data}` | 400 Error |
-
-(Se omiten algunos campos repetitivos por brevedad.)
-
-Cada endpoint admite ejemplos similares; se muestran algunos representativos:
-
-### POST /documents
-Sube un PDF al bucket.
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/documents \
-  -F 'file=@/ruta/doc.pdf'
-```
-**fetch**
-```js
-const fd=new FormData();
-fd.append('file',fileInput.files[0]);
-await fetch('http://localhost:3000/api/v1/documents',{method:'POST',body:fd});
-```
-
-### POST /documents/cuadro-firmas/firmar
-Firma un documento usando imagen.
-
-**curl**
-```
-curl -X POST http://localhost:3000/api/v1/documents/cuadro-firmas/firmar \
- -F 'file=@firma.png' \
- -F 'userId=1' -F 'nombreUsuario=Ana Perez' -F 'cuadroFirmaId=10' \
- -F 'responsabilidadId=3' -F 'nombreResponsabilidad=Aprueba'
-```
-**fetch**
-```js
-const fd=new FormData();
-fd.append('file',sigFile);
-fd.append('userId','1');
-fd.append('nombreUsuario','Ana Perez');
-fd.append('cuadroFirmaId','10');
-fd.append('responsabilidadId','3');
-fd.append('nombreResponsabilidad','Aprueba');
-await fetch('http://localhost:3000/api/v1/documents/cuadro-firmas/firmar',{method:'POST',body:fd});
-```
-
-### PATCH /documents/cuadro-firmas/estado
-Actualiza el estado de una asignación.
-
-**Body:**
-```
-{
-  "idCuadroFirma":1,
-  "idEstadoFirma":2,
-  "nombreEstadoFirma":"En Progreso",
-  "idUser":1,
-  "nombreUser":"Ana",
-  "observaciones":"Firmado"
-}
-```
-**curl**
-```
-curl -X PATCH http://localhost:3000/api/v1/documents/cuadro-firmas/estado \
- -H 'Content-Type: application/json' \
- -d '{"idCuadroFirma":1,"idEstadoFirma":2,"nombreEstadoFirma":"En Progreso","idUser":1,"nombreUser":"Ana","observaciones":"Firmado"}'
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/documents/cuadro-firmas/estado',{
-  method:'PATCH',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({idCuadroFirma:1,idEstadoFirma:2,nombreEstadoFirma:'En Progreso',idUser:1,nombreUser:'Ana',observaciones:'Firmado'})
-});
-```
-
-(Otros endpoints siguen patrones similares combinando `FormData` y JSON según el DTO indicado.)
-
-## AI
-
-| Método | Ruta | Auth/Guards | Body DTO | Query/Params | Respuesta | Códigos de error |
-|-------|------|-------------|----------|--------------|-----------|------------------|
-| GET | /ai | none | - | - | "findAll()" | - |
-
-### GET /ai
-Retorna string de prueba.
-
-**curl**
-```
-curl http://localhost:3000/api/v1/ai
-```
-**fetch**
-```js
-await fetch('http://localhost:3000/api/v1/ai');
-```
-
+## A) Tabla resumen
+
+| Grupo/Controlador | Nombre método | HTTP | Ruta completa | Auth | Query | Path Params | Body (tipo) | Form-Data parts | Respuestas | Notas |
+|---|---|---|---|---|---|---|---|---|---|---|
+| App | getHello | GET | /api/v1 | none | - | - | - | - | 200 string | - |
+| Auth | signup | POST | /api/v1/auth/signup | none | - | - | CreateUserDto | - | 201 tokens | Crea usuario (Prisma) |
+| Auth | login | POST | /api/v1/auth/login | none | - | - | LoginDto | - | 200 `{ok}` | Emite cookies JWT |
+| Auth | refresh | POST | /api/v1/auth/refresh | none | - | - | - | - | 200 `{ok}` | Lee cookie refresh |
+| Auth | logout | POST | /api/v1/auth/logout | none | - | - | - | - | 204 vacío | Borra cookies |
+| Users | create | POST | /api/v1/users | none | - | - | CreateUserDto | - | 201 user | Prisma user.create |
+| Users | findAll | GET | /api/v1/users | none | - | - | - | - | 200 lista | Prisma user.findMany |
+| Users | me | GET | /api/v1/users/me | JwtAuthGuard | - | - | - | - | 200 MeResponseDto | Obtiene páginas/roles |
+| Users | findOne | GET | /api/v1/users/:id | none | - | id:number | - | - | 200 user | Prisma user.findUnique |
+| Users | update | PATCH | /api/v1/users/:id | none | - | id:number | UpdateUserDto | - | 200 user | Prisma user.update |
+| Users | remove | DELETE | /api/v1/users/:id | none | - | id:number | - | - | 200 user | Prisma user.delete |
+| Roles | findAll | GET | /api/v1/roles | JwtAuthGuard | all? | - | - | - | 200 lista | Prisma rol.findMany |
+| Roles | create | POST | /api/v1/roles | JwtAuthGuard | - | - | CreateRolDto | - | 201 rol | Prisma rol.create |
+| Roles | update | PATCH | /api/v1/roles/:id | JwtAuthGuard | - | id:number | UpdateRolDto | - | 200 rol | Prisma rol.update |
+| Roles | getPages | GET | /api/v1/roles/:id/paginas | JwtAuthGuard | - | id:number | - | - | 200 `{paginaIds}` | Valida rol activo |
+| Roles | setPages | PUT | /api/v1/roles/:id/paginas | JwtAuthGuard | - | id:number | `{paginaIds:number[]}` | - | 200 `{paginaIds}` | Tx pagina_rol + auditoria |
+| Roles | remove | DELETE | /api/v1/roles/:id | JwtAuthGuard | - | id:number | - | - | 200 rol | Marca activo=false |
+| Roles | restore | PATCH | /api/v1/roles/:id/restore | JwtAuthGuard | - | id:number | - | - | 200 rol | Marca activo=true |
+| Paginas | findAll | GET | /api/v1/paginas | JwtAuthGuard | all? | - | - | - | 200 lista | Prisma pagina.findMany |
+| Paginas | create | POST | /api/v1/paginas | JwtAuthGuard | - | - | CreatePaginaDto | - | 201 pagina | Prisma pagina.create |
+| Paginas | update | PATCH | /api/v1/paginas/:id | JwtAuthGuard | - | id:number | UpdatePaginaDto | - | 200 pagina | Prisma pagina.update |
+| Paginas | remove | DELETE | /api/v1/paginas/:id | JwtAuthGuard | - | id:number | - | - | 200 pagina | Activo=false |
+| Paginas | restore | PATCH | /api/v1/paginas/:id/restore | JwtAuthGuard | - | id:number | - | - | 200 pagina | Activo=true |
+| Documents | create | POST | /api/v1/documents | none | - | - | - | file:file | 201 `{status,data}` | Sube PDF a S3 |
+| Documents | signDocumentTest | POST | /api/v1/documents/cuadro-firmas/firmar | none | - | - | FirmaCuadroDto | file:file | 200 `{status,data}` | Firma PDF, actualiza cuadro |
+| Documents | updateDocumentoAsignacion | PATCH | /api/v1/documents/cuadro-firmas/documento/:id | none | - | id:number | idUser,observaciones | file:file | 200 `{status,data}` | Sube PDF y registra historial |
+| Documents | analyzePDFTest | POST | /api/v1/documents/analyze-pdf-test | none | - | - | - | files:files | 200 texto | Extrae texto PDF |
+| Documents | generarPlantilla | POST | /api/v1/documents/plantilla | none | - | - | CreatePlantillaDto | - | 201 `{status,data}` | Genera plantilla Prisma |
+| Documents | getDocumentoURLBucket | GET | /api/v1/documents/cuadro-firmas/documento-url | none | fileName | - | - | - | 200 URL | Presigned S3 |
+| Documents | findCuadroFirmas | GET | /api/v1/documents/cuadro-firmas/:id | none | - | id:number | - | - | 200 detalle | S3 presigned + Prisma |
+| Documents | guardarCuadroFirmas | POST | /api/v1/documents/cuadro-firmas | none | - | - | CreateCuadroFirmaDto + responsables | file:file | 201 cuadro | Guarda PDF, historial |
+| Documents | agregarHistorialCuadroFirma | POST | /api/v1/documents/cuadro-firmas/historial | none | - | - | AddHistorialCuadroFirmaDto | - | 201 `{registro}` | Inserta historial |
+| Documents | getAllEstadosFirma | GET | /api/v1/documents/estados-firma | none | - | - | - | - | 200 lista | Prisma estado_firma |
+| Documents | getHistorialCuadroFirmas | GET | /api/v1/documents/cuadro-firmas/historial/:id | none | page,limit | id:number | - | - | 200 historial | Prisma historial |
+| Documents | getUsuariosFirmantesCuadroFirmas | GET | /api/v1/documents/cuadro-firmas/firmantes/:id | none | - | id:number | - | - | 200 firmantes | Prisma cuadro_firma_user |
+| Documents | getAsignacionesByUserId | GET | /api/v1/documents/cuadro-firmas/by-user/:userId | none | page,limit | userId:number | - | - | 200 asignaciones | Prisma filtro por usuario |
+| Documents | getSupervisionDocumentos | GET | /api/v1/documents/cuadro-firmas/documentos/supervision | none | page,limit | - | - | - | 200 documentos | Prisma supervisión |
+| Documents | cambiarEstadoAsignacion | PATCH | /api/v1/documents/cuadro-firmas/estado | none | - | - | UpdateEstadoAsignacionDto | - | 200 `{status,data}` | Actualiza estado + historial |
+| Documents | updateCuadroFirmas | PATCH | /api/v1/documents/cuadro-firmas/:id | none | - | id:number | UpdateCuadroFirmaDto + responsables | multipart | 200 `{status,data}` | Actualiza cuadro y responsables |
+| AI | findAll | GET | /api/v1/ai | none | - | - | - | - | 200 string | endpoint de prueba |
+
+## B) Detalle por endpoint
+
+### AppController
+#### GET /api/v1 – AppController#getHello
+- **Auth:** ninguna
+- **Respuesta:** `200` texto simple.
+
+### AuthController
+#### POST /api/v1/auth/signup – signup
+- **Auth:** ninguna
+- **Body (JSON CreateUserDto):**
+  - primer_nombre, primer_apellido, correo_institucional, codigo_empleado, password – `string` obligatorios.
+- **Respuesta:** `201` `{access_token, refresh_token}`.
+- **Efectos:** crea usuario (`prisma.user.create`).
+
+#### POST /api/v1/auth/login – login
+- **Body (LoginDto):** email `string`, password `string` obligatorios.
+- **Respuesta:** `200` `{ok: true}` y establece cookies JWT.
+
+#### POST /api/v1/auth/refresh – refresh
+- **Cookies:** `refresh_token`.
+- **Respuesta:** `200` `{ok: true}` nuevas cookies.
+
+#### POST /api/v1/auth/logout – logout
+- **Respuesta:** `204` sin cuerpo, limpia cookies.
+
+### UsersController
+#### POST /api/v1/users – create
+- **Body (CreateUserDto):** campos string obligatorios, password almacenada con hash.
+- **Respuesta:** `201` usuario creado.
+
+#### GET /api/v1/users – findAll
+- **Respuesta:** `200` lista de `{id, primer_nombre, correo_institucional, activo}`.
+
+#### GET /api/v1/users/me – me
+- **Auth:** `JwtAuthGuard` (Bearer).
+- **Respuesta:** `200` `{id, nombre, correo, pages[], roles[]}`.
+
+#### GET /api/v1/users/:id – findOne
+- **Path:** `id` número requerido.
+- **Respuesta:** `200` usuario o `null`.
+
+#### PATCH /api/v1/users/:id – update
+- **Path:** `id` número requerido.
+- **Body (UpdateUserDto):** mismos campos que CreateUserDto opcionales.
+- **Respuesta:** `200` usuario actualizado.
+
+#### DELETE /api/v1/users/:id – remove
+- **Path:** `id` número requerido.
+- **Respuesta:** `200` usuario eliminado.
+
+### RolesController
+*(todos requieren `JwtAuthGuard`)*
+
+#### GET /api/v1/roles – findAll
+- **Query:** `all` (`"1"` para incluir inactivos, opcional).
+- **Respuesta:** `200` lista de roles.
+
+#### POST /api/v1/roles – create
+- **Body (CreateRolDto):** nombre `string` requerido, descripcion `string` opcional, activo `boolean` opcional, created_by `number` opcional.
+- **Respuesta:** `201` rol creado.
+
+#### PATCH /api/v1/roles/:id – update
+- **Path:** `id` número requerido.
+- **Body (UpdateRolDto):** campos de CreateRolDto opcionales.
+- **Respuesta:** `200` rol actualizado.
+
+#### GET /api/v1/roles/:id/paginas – getPages
+- **Path:** `id` número requerido.
+- **Respuesta:** `200` `{paginaIds:number[]}`.
+
+#### PUT /api/v1/roles/:id/paginas – setPages
+- **Path:** `id` número.
+- **Body:** `{paginaIds:number[]}`.
+- **Respuesta:** `200` ids asignados.
+- **Efectos:** transacción `pagina_rol` y `auditoria`.
+
+#### DELETE /api/v1/roles/:id – remove
+- **Path:** `id` número.
+- **Respuesta:** `200` rol desactivado (`activo=false`).
+
+#### PATCH /api/v1/roles/:id/restore – restore
+- **Path:** `id` número.
+- **Respuesta:** `200` rol activado.
+
+### PaginasController
+*(todos requieren `JwtAuthGuard`)*
+
+#### GET /api/v1/paginas – findAll
+- **Query:** `all` (`"1"` para incluir inactivas).
+- **Respuesta:** `200` lista de páginas.
+
+#### POST /api/v1/paginas – create
+- **Body (CreatePaginaDto):** nombre y url `string` obligatorios; descripcion `string` y activo `boolean` opcionales.
+- **Respuesta:** `201` página creada.
+
+#### PATCH /api/v1/paginas/:id – update
+- **Path:** `id` número.
+- **Body (UpdatePaginaDto):** campos de CreatePaginaDto opcionales.
+- **Respuesta:** `200` página actualizada.
+
+#### DELETE /api/v1/paginas/:id – remove
+- **Path:** `id` número.
+- **Respuesta:** `200` página desactivada.
+
+#### PATCH /api/v1/paginas/:id/restore – restore
+- **Path:** `id` número.
+- **Respuesta:** `200` página restaurada.
+
+### DocumentsController
+*(sin guardas, expone operaciones críticas sin autenticación)*
+
+#### POST /api/v1/documents – create
+- **Form-Data:** archivo `file` (PDF).
+- **Respuesta:** `201` `{status,data}` con clave S3.
+- **Efectos:** `awsService.uploadFile` → carga a S3.
+
+#### POST /api/v1/documents/cuadro-firmas/firmar – signDocumentTest
+- **Form-Data:** archivo `file` (firma) + campos `userId`, `nombreUsuario`, `cuadroFirmaId`, `responsabilidadId`, `nombreResponsabilidad` (FirmaCuadroDto).
+- **Respuesta:** `200` `{status,data}`.
+- **Efectos:** inserta firma en PDF, actualiza `cuadro_firma` y `cuadro_firma_user`, sube PDF firmado a S3.
+
+#### PATCH /api/v1/documents/cuadro-firmas/documento/:id – updateDocumentoAsignacion
+- **Path:** `id` número.
+- **Form-Data:** archivo `file` (PDF) + campos de texto `idUser`, `observaciones`.
+- **Respuesta:** `200` `{status,data}`.
+- **Efectos:** sube archivo a S3 y agrega registro en historial.
+
+#### POST /api/v1/documents/analyze-pdf-test – analyzePDFTest
+- **Form-Data:** archivo `files`.
+- **Respuesta:** `200` texto extraído.
+
+#### POST /api/v1/documents/plantilla – generarPlantilla
+- **Body (CreatePlantillaDto):** color, nombre, descripcion `string`; idEmpresa `number`.
+- **Respuesta:** `201` `{status,data}`.
+- **Efectos:** crea registro `plantilla` en Prisma.
+
+#### GET /api/v1/documents/cuadro-firmas/documento-url – getDocumentoURLBucket
+- **Query:** `fileName` `string` requerido.
+- **Respuesta:** `200` URL prefirmada.
+- **Efectos:** `awsService.getPresignedURL`.
+
+#### GET /api/v1/documents/cuadro-firmas/:id – findCuadroFirmas
+- **Path:** `id` número.
+- **Respuesta:** `200` detalle del cuadro + URLs de S3.
+
+#### POST /api/v1/documents/cuadro-firmas – guardarCuadroFirmas
+- **Form-Data:** archivo `file` (PDF) + JSON `responsables` + campos de `CreateCuadroFirmaDto`.
+- **Respuesta:** `201` cuadro de firmas.
+- **Efectos:** carga PDF a S3, crea registro `cuadro_firma` y agrega historial.
+
+#### POST /api/v1/documents/cuadro-firmas/historial – agregarHistorialCuadroFirma
+- **Body (AddHistorialCuadroFirmaDto):** cuadroFirmaId, estadoFirmaId, userId `number`; observaciones `string`.
+- **Respuesta:** `201` `{registro}`.
+
+#### GET /api/v1/documents/estados-firma – getAllEstadosFirma
+- **Respuesta:** `200` lista de estados.
+
+#### GET /api/v1/documents/cuadro-firmas/historial/:id – getHistorialCuadroFirmas
+- **Path:** `id` número.
+- **Query:** `page`, `limit` opcionales.
+- **Respuesta:** `200` historial paginado.
+
+#### GET /api/v1/documents/cuadro-firmas/firmantes/:id – getUsuariosFirmantesCuadroFirmas
+- **Path:** `id` número.
+- **Respuesta:** `200` firmantes.
+
+#### GET /api/v1/documents/cuadro-firmas/by-user/:userId – getAsignacionesByUserId
+- **Path:** `userId` número.
+- **Query:** `page`, `limit`.
+- **Respuesta:** `200` asignaciones del usuario.
+
+#### GET /api/v1/documents/cuadro-firmas/documentos/supervision – getSupervisionDocumentos
+- **Query:** `page`, `limit`.
+- **Respuesta:** `200` documentos para supervisión.
+
+#### PATCH /api/v1/documents/cuadro-firmas/estado – cambiarEstadoAsignacion
+- **Body (UpdateEstadoAsignacionDto):** idCuadroFirma, idEstadoFirma, nombreEstadoFirma, idUser, nombreUser, observaciones.
+- **Respuesta:** `200` `{status,data}`.
+
+#### PATCH /api/v1/documents/cuadro-firmas/:id – updateCuadroFirmas
+- **Path:** `id` número.
+- **Form-Data:** JSON `responsables` + campos opcionales de `UpdateCuadroFirmaDto` (titulo, descripcion, version, codigo, empresa_id, createdBy, observaciones).
+- **Respuesta:** `200` `{status,data}`.
+- **Efectos:** actualiza cuadro y responsables asociados.
+
+### AiController
+#### GET /api/v1/ai – findAll
+- **Respuesta:** `200` cadena "findAll()".
+
+## E) Hallazgos / advertencias
+- Existe un controlador duplicado en `src/user/users.controller.ts` que define rutas `/users` no usadas en el módulo principal.
+- Algunos nombres de parámetros varían entre endpoints (`idUser` vs `userId`).
+- La mayoría de rutas en `DocumentsController` no están protegidas con guards; podría requerir autenticación.
+- Se mezclan cuerpos JSON y `multipart/form-data` para acciones relacionadas, lo que complica la integración.
