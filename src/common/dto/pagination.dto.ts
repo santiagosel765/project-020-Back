@@ -27,6 +27,6 @@ export class PaginationDto {
 
   @IsOptional()
   @IsString()
-  sort?: 'asc' | 'desc';
+  sort?: 'asc' | 'desc' = 'desc';
 
 }
