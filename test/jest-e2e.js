@@ -1,3 +1,4 @@
+/* eslint-disable */
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '../',

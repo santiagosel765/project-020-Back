@@ -37,6 +37,14 @@ import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { withPrismaRetry } from 'src/utils/prisma-retry';
 
+function getInitials(fullName: string): string {
+  return fullName
+    .split(' ')
+    .filter(Boolean)
+    .map((n) => n[0].toUpperCase())
+    .join('');
+}
+
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
   constructor(
@@ -538,55 +546,110 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           : {}),
       };
 
-      const [result, totalResult] = await this.prisma.$transaction([
-        this.prisma.cuadro_firma_user.findMany({
-          take: limit,
-          skip: (page - 1) * limit,
-          where,
-          orderBy: {
-            cuadro_firma: { add_date: sort === 'asc' ? 'asc' : 'desc' },
-          },
-          select: {
-            cuadro_firma: {
-              select: {
-                id: true,
-                titulo: true,
-                descripcion: true,
-                codigo: true,
-                version: true,
-                nombre_pdf: true,
-                add_date: true,
-                estado_firma: {
-                  select: { id: true, nombre: true },
-                },
-                empresa: {
-                  select: { id: true, nombre: true },
-                },
-                user: {
-                  select: {
-                    correo_institucional: true,
-                    codigo_empleado: true,
+      const { result, totalResult, firmantes } = await this.prisma.$transaction(
+        async (tx) => {
+          const result = await tx.cuadro_firma_user.findMany({
+            take: limit,
+            skip: (page - 1) * limit,
+            where,
+            orderBy: {
+              cuadro_firma: { add_date: sort === 'asc' ? 'asc' : 'desc' },
+            },
+            select: {
+              cuadro_firma: {
+                select: {
+                  id: true,
+                  titulo: true,
+                  descripcion: true,
+                  codigo: true,
+                  version: true,
+                  nombre_pdf: true,
+                  add_date: true,
+                  estado_firma: {
+                    select: { id: true, nombre: true },
+                  },
+                  empresa: {
+                    select: { id: true, nombre: true },
+                  },
+                  user: {
+                    select: {
+                      correo_institucional: true,
+                      codigo_empleado: true,
+                    },
                   },
                 },
               },
+              user: true,
             },
-            user: true,
-          },
-          distinct: ['cuadro_firma_id'],
-        }),
-        this.prisma.cuadro_firma_user.findMany({
-          where,
-          select: { cuadro_firma_id: true },
-          distinct: ['cuadro_firma_id'],
-        }),
-      ]);
+            distinct: ['cuadro_firma_id'],
+          });
+
+          const totalResult = await tx.cuadro_firma_user.findMany({
+            where,
+            select: { cuadro_firma_id: true },
+            distinct: ['cuadro_firma_id'],
+          });
+
+          const firmantes = result.length
+            ? await tx.cuadro_firma_user.findMany({
+                where: {
+                  cuadro_firma_id: {
+                    in: result.map((r) => r.cuadro_firma.id),
+                  },
+                },
+                select: {
+                  cuadro_firma_id: true,
+                  user_id: true,
+                  user: {
+                    select: {
+                      id: true,
+                      primer_nombre: true,
+                      primer_apellido: true,
+                      codigo_empleado: true,
+                      correo_institucional: true,
+                      url_foto: true,
+                    },
+                  },
+                  responsabilidad_firma: {
+                    select: { id: true, nombre: true, orden: true },
+                  },
+                },
+                orderBy: {
+                  responsabilidad_firma: { orden: 'asc' },
+                },
+              })
+            : [];
+
+          return { result, totalResult, firmantes };
+        },
+      );
 
       const totalCount = totalResult.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
+      const firmantesMap = firmantes.reduce(
+        (acc, f) => {
+          const nombre = `${f.user.primer_nombre} ${f.user.primer_apellido}`.trim();
+          const list = acc.get(f.cuadro_firma_id) ?? [];
+          list.push({
+            userId: f.user_id,
+            nombre,
+            codigo: f.user.codigo_empleado,
+            correo: f.user.correo_institucional,
+            responsabilidad: {
+              id: f.responsabilidad_firma?.id ?? 0,
+              nombre: f.responsabilidad_firma?.nombre ?? '',
+            },
+            urlFoto: f.user.url_foto,
+          });
+          acc.set(f.cuadro_firma_id, list);
+          return acc;
+        },
+        new Map<number, any[]>(),
+      );
+
       const mapped = result.map((item) => {
-        // Calcula días solo si el estado no es Rechazado ni Finalizado
         let diasTranscurridos: number | undefined = undefined;
         const estado = item.cuadro_firma.estado_firma?.nombre?.toLowerCase();
         if (estado !== 'rechazado' && estado !== 'finalizado') {
@@ -598,6 +661,15 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           );
         }
 
+        const firmantesCuadro = firmantesMap.get(item.cuadro_firma.id) || [];
+        const firmantesResumen = firmantesCuadro.map((f) => ({
+          id: f.userId,
+          nombre: f.nombre,
+          iniciales: getInitials(f.nombre),
+          urlFoto: f.urlFoto ?? null,
+          responsabilidad: f.responsabilidad.nombre,
+        }));
+
         return {
           ...item,
           usuarioAsignado: item.user,
@@ -607,6 +679,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             ...item.cuadro_firma,
             user: undefined,
             diasTranscurridos,
+            firmantesResumen,
           },
         };
       });
@@ -614,7 +687,6 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       return {
         asignaciones: mapped as Asignacion[],
         meta: {
-          totalPages,
           totalCount,
           page: currentPage,
           limit,

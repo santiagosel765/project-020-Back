@@ -940,10 +940,8 @@ export class DocumentsService {
     return {
       status: HttpStatus.OK,
       data: {
-        items: asignaciones.asignaciones,
-        total: asignaciones.meta.totalCount,
-        page: asignaciones.meta.page,
-        limit: asignaciones.meta.limit,
+        asignaciones: asignaciones.asignaciones,
+        meta: asignaciones.meta,
       },
     };
   }
