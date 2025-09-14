@@ -388,6 +388,9 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             segundo_apellido: true,
             apellido_casada: true,
             correo_institucional: true,
+            codigo_empleado: true,
+            posicion: { select: { nombre: true } },
+            gerencia: { select: { nombre: true } },
           },
         },
         responsabilidad_firma: {
@@ -397,6 +400,10 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           },
         },
       },
+      orderBy: [
+        { responsabilidad_firma: { orden: 'asc' } },
+        { user: { primer_nombre: 'asc' } },
+      ],
     });
   }
 
