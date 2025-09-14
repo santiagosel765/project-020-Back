@@ -18,14 +18,11 @@ import {
   FilesInterceptor,
 } from '@nestjs/platform-express';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
-import {
-  CreateCuadroFirmaDto,
-  ResponsablesFirmaDto,
-} from './dto/create-cuadro-firma.dto';
+import { CreateCuadroFirmaDto, ResponsablesFirmaDto } from './dto/create-cuadro-firma.dto';
+import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
-import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 
@@ -109,27 +106,19 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('file', 1))
   async guardarCuadroFirmas(
     @UploadedFiles() file: Express.Multer.File[],
-    @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
+    @Body('responsables') responsables: unknown,
     @Body() createCuadroFirmaDto: CreateCuadroFirmaDto,
   ) {
-    console.log({ responsables });
     const [documentoPDF] = file;
-    // return createCuadroFirmaDto;
-    const cuadroFirmaDB = await this.documentsService.guardarCuadroFirmas(
+
+    const cuadroFirma = await this.documentsService.guardarCuadroFirmas(
       createCuadroFirmaDto,
       responsables,
       documentoPDF.buffer,
     );
 
-    if (!cuadroFirmaDB) {
-      throw new HttpException(
-        `Problemas al generar cuadro de firmas`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-
     const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
-      cuadroFirmaId: cuadroFirmaDB.id,
+      cuadroFirmaId: cuadroFirma.id,
       estadoFirmaId: 4,
       userId: +createCuadroFirmaDto.createdBy,
       observaciones: 'Cuadro de firmas generado',
@@ -141,14 +130,11 @@ export class DocumentsController {
 
     if (!registroHistorialDB) {
       this.logger.error(
-        `Problemas al crear registro en historial para cuadro de firmas con ID "${cuadroFirmaDB.id}"`,
+        `Problemas al crear registro en historial para cuadro de firmas con ID "${cuadroFirma.id}"`,
       );
     }
 
-    return {
-      status: HttpStatus.CREATED,
-      data: 'Cuadro de firmas generado exitosamente',
-    };
+    return cuadroFirma;
   }
 
   @Post('cuadro-firmas/historial')

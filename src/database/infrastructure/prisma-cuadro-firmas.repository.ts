@@ -176,7 +176,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               // Devuelve los IDs para actualizarlos FUERA de la transacción
               return { cfId: cf.id, docId: doc.id };
             },
-            { timeout: 200_000, maxWait: 5_000 } // sube el timeout de la transacción
+            { timeout: 20_000, maxWait: 5_000 } // sube el timeout de la transacción
           ),
         this.prisma
       );
