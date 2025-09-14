@@ -88,6 +88,34 @@ const documentsServiceMock = {
     status: HttpStatus.OK,
     data: { total: 1, pendiente: 1, enProgreso: 0, rechazado: 0, completado: 0 },
   }),
+  findCuadroFirma: jest.fn().mockResolvedValue({
+    id: 1,
+    nombre_pdf: 'cuadro',
+    progress: 50,
+    cuadro_firma_user: [
+      {
+        estaFirmado: true,
+        fecha_firma: null,
+        responsabilidad_firma: { id: 1, nombre: 'Elabora', orden: 1 },
+        user: { primer_apellido: 'A' },
+      },
+      {
+        estaFirmado: false,
+        fecha_firma: null,
+        responsabilidad_firma: { id: 2, nombre: 'Revisa', orden: 2 },
+        user: { primer_apellido: 'B' },
+      },
+    ],
+  }),
+  getDocumentoByCuadroFirmaID: jest
+    .fn()
+    .mockResolvedValue({ data: { nombre_archivo: 'doc' } }),
+  getDocumentoURLBucket: jest
+    .fn()
+    .mockResolvedValue({
+      status: HttpStatus.OK,
+      data: 'https://example.com/file.pdf?response-content-type=application%2Fpdf&content-disposition=inline',
+    }),
 };
 
 @UseGuards(JwtAuthGuard)
@@ -116,6 +144,28 @@ class TestDocumentsController {
   @Get('cuadro-firmas/documentos/supervision/stats')
   getSupervisionStats() {
     return this.documentsService.getSupervisionStats();
+  }
+
+  @Get('cuadro-firmas/:id')
+  async findCuadroFirmas(
+    @Param('id') id: string,
+    @Query('expiresIn') expiresIn?: string,
+  ) {
+    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id);
+    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(
+      cuadroFirmasDB.nombre_pdf,
+      expiresIn ? +expiresIn : undefined,
+    );
+    const documentoDB = await this.documentsService.getDocumentoByCuadroFirmaID(+id);
+    const urlDocumento = await this.documentsService.getDocumentoURLBucket(
+      documentoDB.data.nombre_archivo,
+      expiresIn ? +expiresIn : undefined,
+    );
+    return {
+      urlCuadroFirmasPDF: urlCuadroFirmasPDF.data,
+      urlDocumento: urlDocumento.data,
+      ...cuadroFirmasDB,
+    };
   }
 }
 
@@ -183,5 +233,33 @@ describe('DocumentsController (e2e)', () => {
 
     expect(res.body.data).toHaveProperty('total');
     expect(res.body.data).toHaveProperty('pendiente');
+  });
+
+  it('cuadro-firmas/:id returns progress and sorted firmantes with urls', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/documents/cuadro-firmas/1?expiresIn=60')
+      .expect(HttpStatus.OK);
+
+    expect(res.body.progress).toBeGreaterThanOrEqual(0);
+    expect(res.body.progress).toBeLessThanOrEqual(100);
+
+    const ordenes = res.body.cuadro_firma_user.map(
+      (i: any) => i.responsabilidad_firma.orden,
+    );
+    const sorted = [...ordenes].sort((a, b) => a - b);
+    expect(ordenes).toEqual(sorted);
+
+    expect(res.body.urlCuadroFirmasPDF).toContain(
+      'response-content-type=application%2Fpdf',
+    );
+    expect(res.body.urlCuadroFirmasPDF.toLowerCase()).toContain(
+      'content-disposition=inline',
+    );
+    expect(res.body.urlDocumento).toContain(
+      'response-content-type=application%2Fpdf',
+    );
+    expect(res.body.urlDocumento.toLowerCase()).toContain(
+      'content-disposition=inline',
+    );
   });
 });
