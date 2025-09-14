@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
@@ -17,12 +18,8 @@ import { PDF_GENERATION_REPOSITORY } from 'src/pdf/domain/repositories/pdf-gener
 import type { PdfGenerationRepository } from 'src/pdf/domain/repositories/pdf-generation.repository';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { cuadro_firma, cuadro_firma_estado_historial } from 'generated/prisma';
-import {
-  CreateCuadroFirmaDto,
-  FirmanteUserDto,
-  ResponsablesFirmaDto,
-} from './dto/create-cuadro-firma.dto';
+import { Prisma, cuadro_firma, cuadro_firma_estado_historial } from 'generated/prisma';
+import { CreateCuadroFirmaDto, ResponsablesFirmaDto } from './dto/create-cuadro-firma.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { HttpResponse } from 'src/interfaces/http-response.interfaces';
@@ -43,6 +40,7 @@ import {
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { withPrismaRetry } from 'src/utils/prisma-retry';
+import { parseResponsables } from './utils/parse-responsables.util';
 
 @Injectable()
 export class DocumentsService {
@@ -370,10 +368,50 @@ export class DocumentsService {
    */
   async guardarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
-    responsables: ResponsablesFirmaDto,
+    responsablesInput: unknown,
     documentoPDF: Buffer,
-  ): Promise<cuadro_firma> {
+  ): Promise<{ id: number; codigo: string; titulo: string; url_pdf: string; nombre_pdf: string; firmantesCreados: number; }> {
     try {
+      const resp = parseResponsables(responsablesInput);
+      if (responsablesInput && !resp) {
+        throw new BadRequestException('Formato de responsables inválido');
+      }
+
+      const toArray = (v: any) => (Array.isArray(v) ? v : v ? [v] : []);
+      const respUpper = {
+        ELABORA: resp?.ELABORA ?? resp?.elabora,
+        REVISA: resp?.REVISA ?? resp?.revisa,
+        APRUEBA: resp?.APRUEBA ?? resp?.aprueba,
+        ENTERADO: resp?.ENTERADO ?? resp?.enterado,
+      };
+
+      type RoleName = 'ELABORA' | 'REVISA' | 'APRUEBA' | 'ENTERADO';
+      type Assign = { userId: number; roleName: RoleName };
+      const roles: Assign[] = [
+        ...toArray(respUpper.ELABORA).map((x: any) => ({
+          userId: +(x.idUser ?? x.userId),
+          roleName: 'ELABORA' as RoleName,
+        })),
+        ...toArray(respUpper.REVISA).map((x: any) => ({
+          userId: +(x.idUser ?? x.userId),
+          roleName: 'REVISA' as RoleName,
+        })),
+        ...toArray(respUpper.APRUEBA).map((x: any) => ({
+          userId: +(x.idUser ?? x.userId),
+          roleName: 'APRUEBA' as RoleName,
+        })),
+        ...toArray(respUpper.ENTERADO).map((x: any) => ({
+          userId: +(x.idUser ?? x.userId),
+          roleName: 'ENTERADO' as RoleName,
+        })),
+      ].filter((a) => Number.isFinite(a.userId));
+
+      const respDto: ResponsablesFirmaDto = {
+        elabora: toArray(respUpper.ELABORA)[0],
+        revisa: toArray(respUpper.REVISA),
+        aprueba: toArray(respUpper.APRUEBA),
+      };
+
       const exists = await withPrismaRetry(
         () => this.prisma.cuadro_firma.findUnique({
           where: { codigo: createCuadroFirmaDto.codigo },
@@ -385,7 +423,7 @@ export class DocumentsService {
       }
 
       const { pdfContent, plantilladId, formattedHtml, fileName } =
-        await this.generarCuadroFirmas(createCuadroFirmaDto, responsables);
+        await this.generarCuadroFirmas(createCuadroFirmaDto, respDto);
 
       const { fileKey: cuadroFirmasKey } = await this.awsService.uploadFile(
         pdfContent,
@@ -396,57 +434,78 @@ export class DocumentsService {
       const bucketFileName = `DOCUMENTO_PDF_${timestampString}`;
       await this.awsService.uploadFile(documentoPDF, bucketFileName);
 
-      const cuadroFirmaDB =
-        await this.cuadroFirmasRepository.guardarCuadroFirmas(
-          createCuadroFirmaDto,
-          responsables,
-          documentoPDF,
-          pdfContent,
-          plantilladId,
-          formattedHtml,
-          fileName,
-          cuadroFirmasKey!,
-          bucketFileName!,
-          +createCuadroFirmaDto.createdBy,
-        );
-
-      await this.asignarResponsablesCuadroFirmas(
-        responsables,
-        cuadroFirmaDB.id,
+      const cf = await this.cuadroFirmasRepository.guardarCuadroFirmas(
+        createCuadroFirmaDto,
+        respDto,
+        documentoPDF,
+        pdfContent,
+        plantilladId,
+        formattedHtml,
+        fileName,
+        cuadroFirmasKey!,
+        bucketFileName!,
+        +createCuadroFirmaDto.createdBy,
       );
 
-      return cuadroFirmaDB;
-    } catch (error: any) {
-      if (error instanceof HttpException) throw error;
+      if (roles.length > 0) {
+        const responsabilidades = await this.prisma.responsabilidad_firma.findMany({
+          where: { nombre: { in: ['ELABORA', 'REVISA', 'APRUEBA', 'ENTERADO'] } },
+        });
+        const rolIdByName = new Map<string, number>(
+          responsabilidades.map((r) => [r.nombre.toUpperCase(), r.id]),
+        );
+
+        await this.prisma.$transaction(async (tx) => {
+          for (const r of roles) {
+            const responsabilidadId = rolIdByName.get(r.roleName);
+            if (!responsabilidadId) continue;
+            await tx.cuadro_firma_user.upsert({
+              where: {
+                cuadro_firma_id_user_id_responsabilidad_id: {
+                  cuadro_firma_id: cf.id,
+                  user_id: r.userId,
+                  responsabilidad_id: responsabilidadId,
+                },
+              },
+              update: {},
+              create: {
+                cuadro_firma_id: cf.id,
+                user_id: r.userId,
+                responsabilidad_id: responsabilidadId,
+                estaFirmado: false,
+              },
+            });
+          }
+        });
+      }
+
+      return {
+        id: cf.id,
+        codigo: cf.codigo,
+        titulo: cf.titulo,
+        url_pdf: cf.url_pdf!,
+        nombre_pdf: cf.nombre_pdf!,
+        firmantesCreados: roles.length,
+      };
+    } catch (e: any) {
+      this.logger.error('[createCuadroFirmas] failed', e);
+      if (e instanceof BadRequestException) throw e;
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('El código ya está en uso. Elige otro código.');
+      }
       if (
-        error?.code === 'P1001' ||
-        error?.code === 'P1002' ||
-        error?.code === 'P1017' ||
-        error?.message?.includes('ECONNRESET') ||
-        error?.message?.includes('server has closed the connection')
+        e?.code === 'P1001' ||
+        e?.code === 'P1002' ||
+        e?.code === 'P1017' ||
+        e?.message?.includes('ECONNRESET') ||
+        e?.message?.includes('server has closed the connection')
       ) {
         throw new ServiceUnavailableException('Intente de nuevo');
       }
       throw new InternalServerErrorException(
-        'Problemas al generar cuadro de firmas',
+        'Problemas al generar cuadro de firmas: ' + e.message,
       );
     }
-  }
-
-  async asignarResponsablesCuadroFirmas(
-    responsables: ResponsablesFirmaDto,
-    cuadroFirmaID: number,
-  ) {
-    await this.agregarResponsableCuadroFirma(
-      responsables?.elabora!,
-      cuadroFirmaID,
-    );
-    responsables?.revisa?.forEach(async (f) => {
-      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
-    });
-    responsables?.aprueba?.forEach(async (f) => {
-      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
-    });
   }
 
   async getDocumentoURLBucket(fileName: string) {
@@ -480,30 +539,6 @@ export class DocumentsService {
       return this.handleDBErrors(
         error,
         `Problemas al crear registro en historial de cuadro de firma con id "${addHistorialCuadroFirmaDto.cuadroFirmaId}": ${error}`,
-      );
-    }
-  }
-
-  async agregarResponsableCuadroFirma(
-    firmanteUserDto: FirmanteUserDto,
-    cuadroFirmaId: number,
-  ): Promise<any> {
-    try {
-      return await this.prisma.cuadro_firma_user.create({
-        data: {
-          user: { connect: { id: firmanteUserDto.userId } },
-          cuadro_firma: {
-            connect: { id: cuadroFirmaId },
-          },
-          responsabilidad_firma: {
-            connect: { id: firmanteUserDto.responsabilidadId },
-          },
-        },
-      });
-    } catch (error) {
-      return this.handleDBErrors(
-        error,
-        `Problemas al agregar usuario responsable con id "${firmanteUserDto.userId}" al cuadro de firma con id "${cuadroFirmaId}": ${error}`,
       );
     }
   }
