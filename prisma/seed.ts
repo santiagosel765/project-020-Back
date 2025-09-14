@@ -1,7 +1,38 @@
-import { PrismaClient } from 'generated/prisma';
+import { PrismaClient, type user } from 'generated/prisma';
 import { BcryptAdapter } from '../src/auth/adapters/bcrypt.adapter';
 
 const prisma = new PrismaClient();
+
+// ------- utilidades pequeñas -------
+async function findFirstId(table: 'gerencia' | 'posicion', fallbackName?: string) {
+  if (table === 'gerencia') {
+    const g = await prisma.gerencia.findFirst({ select: { id: true }, where: { activo: true } });
+    if (g) return g.id;
+    if (fallbackName) {
+      const g2 = await prisma.gerencia.upsert({
+        where: { nombre: fallbackName },
+        update: { activo: true },
+        create: { nombre: fallbackName, activo: true },
+        select: { id: true },
+      });
+      return g2.id;
+    }
+  }
+  if (table === 'posicion') {
+    const p = await prisma.posicion.findFirst({ select: { id: true }, where: { activo: true } });
+    if (p) return p.id;
+    if (fallbackName) {
+      const p2 = await prisma.posicion.upsert({
+        where: { nombre: fallbackName },
+        update: { activo: true },
+        create: { nombre: fallbackName, activo: true },
+        select: { id: true },
+      });
+      return p2.id;
+    }
+  }
+  return null;
+}
 
 async function upsertRole(nombre: string) {
   return prisma.rol.upsert({
@@ -26,11 +57,9 @@ async function getPagesByUrls(urls: string[]) {
   });
 }
 
-
 async function setRolePagesByUrls(rolId: number, urls: string[]) {
   const pages = await getPagesByUrls(urls);
   const pageIds = pages.map((p) => p.id);
-
   if (pageIds.length === 0) return;
 
   const existing = await prisma.pagina_rol.findMany({
@@ -38,7 +67,6 @@ async function setRolePagesByUrls(rolId: number, urls: string[]) {
     select: { pagina_id: true },
   });
   const existingIds = new Set(existing.map((e) => e.pagina_id));
-
   const missing = pageIds.filter((id) => !existingIds.has(id));
 
   if (missing.length > 0) {
@@ -49,6 +77,7 @@ async function setRolePagesByUrls(rolId: number, urls: string[]) {
   }
 }
 
+// ------- datos de páginas / permisos -------
 const PAGES_DATA = [
   { nombre: 'Asignaciones', url: '/admin/asignaciones' },
   { nombre: 'Documentos', url: '/admin/documentos' },
@@ -62,6 +91,7 @@ const PAGES_DATA = [
   { nombre: 'Detalle Documento', url: '/documento/[id]' },
 ] as const;
 
+const ADMIN_URLS = PAGES_DATA.map((p) => p.url);
 const GESTOR_URLS = [
   '/general',
   '/admin/mis-documentos',
@@ -69,99 +99,167 @@ const GESTOR_URLS = [
   '/admin/asignaciones',
   '/admin/supervision',
 ];
-
 const USUARIO_URLS = ['/general'];
 
+// ------- rutina principal -------
 async function main() {
-  const roleNames = ['ADMIN', 'GESTOR', 'USUARIO'] as const;
-  type RoleName = (typeof roleNames)[number];
-  const roles: Record<RoleName, { id: number; nombre: string }> = {} as any;
+  await prisma.$transaction([
+    prisma.notificacion_user.deleteMany({}),
+    prisma.notificacion.deleteMany({}),
+    prisma.cuadro_firma_estado_historial.deleteMany({}),
+    prisma.documento.deleteMany({}),
+    prisma.cuadro_firma_user.deleteMany({}),
+    prisma.cuadro_firma.deleteMany({}),
+    prisma.rol_usuario.deleteMany({}),
+    prisma.pagina_rol.deleteMany({}),
+    prisma.user.deleteMany({}),
+  ]);
 
-  for (const nombre of roleNames) {
-    const role = await upsertRole(nombre);
-    roles[nombre] = role;
-    console.log(`Rol ${role.id} - ${role.nombre}`);
-  }
+  // 2) ROLES
+  const roles = {
+    ADMIN: await upsertRole('ADMIN'),
+    GESTOR: await upsertRole('GESTOR'),
+    USUARIO: await upsertRole('USUARIO'),
+  };
 
-  for (const page of PAGES_DATA) {
-    await upsertPage(page);
-  }
-
-  const activePages = await prisma.pagina.count({ where: { activo: true } });
-  console.log(`Active pages (conteo actual en BD): ${activePages}`);
-
-  const allUrls = PAGES_DATA.map((p) => p.url);
-  await setRolePagesByUrls(roles.ADMIN.id, allUrls);
-  const adminAssigned = await prisma.pagina_rol.count({
-    where: { rol_id: roles.ADMIN.id },
-  });
-  console.log(`ADMIN assigned pages (total actual): ${adminAssigned}`);
-
+  // 3) PÁGINAS y asignaciones
+  for (const page of PAGES_DATA) await upsertPage(page);
+  await setRolePagesByUrls(roles.ADMIN.id, ADMIN_URLS);
   await setRolePagesByUrls(roles.GESTOR.id, GESTOR_URLS);
-  const gestorAssigned = await prisma.pagina_rol.count({
-    where: { rol_id: roles.GESTOR.id },
-  });
-  console.log(`GESTOR assigned pages (total actual): ${gestorAssigned}`);
-
   await setRolePagesByUrls(roles.USUARIO.id, USUARIO_URLS);
-  const usuarioAssigned = await prisma.pagina_rol.count({
-    where: { rol_id: roles.USUARIO.id },
-  });
-  console.log(`USUARIO assigned pages (total actual): ${usuarioAssigned}`);
 
-  const adminUser = await prisma.user.upsert({
-    where: { correo_institucional: 'admin@local' },
-    update: {
-      primer_nombre: 'Admin',
-      primer_apellido: 'User',
-      codigo_empleado: 'ADMIN',
-      password: BcryptAdapter.hashPassword('Admin!123'),
-      activo: true,
-    },
-    create: {
-      correo_institucional: 'admin@local',
-      codigo_empleado: 'ADMIN',
-      primer_nombre: 'Admin',
-      primer_apellido: 'User',
-      password: BcryptAdapter.hashPassword('Admin!123'),
-      activo: true,
-    },
-  });
-  await prisma.rol_usuario.upsert({
-    where: {
-      user_id_rol_id: { user_id: adminUser.id, rol_id: roles.ADMIN.id },
-    },
-    update: {},
-    create: { user_id: adminUser.id, rol_id: roles.ADMIN.id },
-  });
-  console.log(`User admin id: ${adminUser.id}`);
+  // 4) Catálogos relacionados (IDs para foreign keys)
+  const gerenciaId = await findFirstId('gerencia', 'Dirección General');
+  const posicionIdAdmin = await findFirstId('posicion', 'Administrador');
+  const posicionIdMgr = await findFirstId('posicion', 'Gerente');
+  const posicionIdAnalyst = await findFirstId('posicion', 'Analista');
 
-  const gestorUser = await prisma.user.upsert({
-    where: { correo_institucional: 'gestor@local' },
-    update: {
-      primer_nombre: 'Gestor',
-      primer_apellido: 'User',
-      codigo_empleado: 'GESTOR1',
-      password: BcryptAdapter.hashPassword('Gestor!123'),
-      activo: true,
+  // 5) USUARIOS 
+  type SeedUser = {
+    correo: string;
+    codigo: string;
+    pass: string;
+    nombres: { p: string; s?: string | null; t?: string | null };
+    apellidos: { p: string; s?: string | null; casada?: string | null };
+    telefono?: string | null;
+    posicion_id?: number | null;
+    gerencia_id?: number | null;
+    roles: Array<'ADMIN' | 'GESTOR' | 'USUARIO'>;
+  };
+
+  const usersBase: SeedUser[] = [
+    {
+      correo: 'admin@local',
+      codigo: 'ADMIN',
+      pass: 'Admin!123',
+      nombres: { p: 'Admin', s: 'Super', t: null },
+      apellidos: { p: 'User', s: null, casada: null },
+      telefono: '+502 5555 0001',
+      posicion_id: posicionIdAdmin,
+      gerencia_id: gerenciaId,
+      roles: ['ADMIN'],
     },
-    create: {
-      correo_institucional: 'gestor@local',
-      codigo_empleado: 'GESTOR1',
-      primer_nombre: 'Gestor',
-      primer_apellido: 'User',
-      password: BcryptAdapter.hashPassword('Gestor!123'),
-      activo: true,
+    {
+      correo: 'gestor@local',
+      codigo: 'GESTOR1',
+      pass: 'Gestor!123',
+      nombres: { p: 'María', s: 'Alejandra', t: null },
+      apellidos: { p: 'Ramírez', s: 'González', casada: null },
+      telefono: '+502 5555 0002',
+      posicion_id: posicionIdMgr,
+      gerencia_id: gerenciaId,
+      roles: ['GESTOR'],
     },
+    {
+      correo: 'juan.perez@local',
+      codigo: 'EMP001',
+      pass: 'Usuario!123',
+      nombres: { p: 'Juan', s: 'Carlos', t: null },
+      apellidos: { p: 'Pérez', s: 'López', casada: null },
+      telefono: '+502 5555 0003',
+      posicion_id: posicionIdAnalyst,
+      gerencia_id: gerenciaId,
+      roles: ['USUARIO'],
+    },
+    {
+      correo: 'sofia.lopez@local',
+      codigo: 'EMP002',
+      pass: 'Usuario!123',
+      nombres: { p: 'Sofía', s: 'Valentina', t: null },
+      apellidos: { p: 'López', s: 'Hernández', casada: null },
+      telefono: '+502 5555 0004',
+      posicion_id: posicionIdAnalyst,
+      gerencia_id: gerenciaId,
+      roles: ['USUARIO'],
+    },
+  ];
+
+  const createdUsers: user[] = [];
+
+  for (const u of usersBase) {
+    const user = await prisma.user.upsert({
+      where: { correo_institucional: u.correo },
+      update: {
+        primer_nombre: u.nombres.p,
+        segundo_name: u.nombres.s ?? null,
+        tercer_nombre: u.nombres.t ?? null,
+        primer_apellido: u.apellidos.p,
+        segundo_apellido: u.apellidos.s ?? null,
+        apellido_casada: u.apellidos.casada ?? null,
+        codigo_empleado: u.codigo,
+        telefono: u.telefono ?? null,
+        posicion_id: u.posicion_id ?? null,
+        gerencia_id: u.gerencia_id ?? null,
+        password: BcryptAdapter.hashPassword(u.pass),
+        activo: true,
+      },
+      create: {
+        correo_institucional: u.correo,
+        codigo_empleado: u.codigo,
+        primer_nombre: u.nombres.p,
+        segundo_name: u.nombres.s ?? null,
+        tercer_nombre: u.nombres.t ?? null,
+        primer_apellido: u.apellidos.p,
+        segundo_apellido: u.apellidos.s ?? null,
+        apellido_casada: u.apellidos.casada ?? null,
+        telefono: u.telefono ?? null,
+        posicion_id: u.posicion_id ?? null,
+        gerencia_id: u.gerencia_id ?? null,
+        password: BcryptAdapter.hashPassword(u.pass),
+        activo: true,
+      },
+      select: { id: true, correo_institucional: true, codigo_empleado: true },
+    });
+
+    createdUsers.push(user as unknown as user);
+  }
+
+  // ADMIN 
+  const adminUser = createdUsers.find((u) => (u as any).correo_institucional === 'admin@local')!;
+  await prisma.user.updateMany({
+    where: { id: { not: (adminUser as any).id } },
+    data: { created_by: (adminUser as any).id },
   });
-  await prisma.rol_usuario.upsert({
-    where: {
-      user_id_rol_id: { user_id: gestorUser.id, rol_id: roles.GESTOR.id },
-    },
-    update: {},
-    create: { user_id: gestorUser.id, rol_id: roles.GESTOR.id },
-  });
-  console.log(`User gestor id: ${gestorUser.id}`);
+
+  // Asignación de roles a usuarios
+  for (const u of usersBase) {
+    const dbUser = await prisma.user.findUnique({
+      where: { correo_institucional: u.correo },
+      select: { id: true },
+    });
+    if (!dbUser) continue;
+
+    for (const r of u.roles) {
+      await prisma.rol_usuario.upsert({
+        where: { user_id_rol_id: { user_id: dbUser.id, rol_id: roles[r].id } },
+        update: {},
+        create: { user_id: dbUser.id, rol_id: roles[r].id },
+      });
+    }
+  }
+
+  console.log(`✔ Usuarios creados: ${createdUsers.length}`);
+  console.log(`✔ Admin listo (login: admin@local / Admin!123)`);
 }
 
 main()
