@@ -76,6 +76,14 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       );
     }
 
+    // ---- Placeholders seguros (defaults para evitar undefined) ----
+    const nombreElabora = (responsables?.elabora?.nombre ?? '').trim();
+    const puestoElabora = responsables?.elabora?.puesto ?? '';
+    const gerenciaElabora = responsables?.elabora?.gerencia ?? '';
+    const nombreElaboraSlug = nombreElabora
+      ? nombreElabora.replaceAll(' ', '_')
+      : 'ELABORA';
+
     const filasApruebaStr = generarFilasFirmas(
       responsables?.aprueba,
       'APRUEBA',
@@ -89,22 +97,23 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     );
 
     const placeholders = {
-      '[TITULO]': createCuadroFirmaDto.titulo,
-      '[CODIGO]': createCuadroFirmaDto.codigo,
-      '[VERSION]': createCuadroFirmaDto.version,
-      '[DESCRIPCION]': createCuadroFirmaDto.descripcion,
+      '[TITULO]': createCuadroFirmaDto.titulo ?? '',
+      '[CODIGO]': createCuadroFirmaDto.codigo ?? '',
+      '[VERSION]': createCuadroFirmaDto.version ?? '',
+      '[DESCRIPCION]': createCuadroFirmaDto.descripcion ?? '',
       '[FECHA]': formatCurrentDate(),
-      '[LOGO_URL]': dbPlantilla.empresa.logo || '',
-      FIRMANTE_ELABORA: responsables?.elabora?.nombre!,
-      PUESTO_ELABORA: responsables?.elabora?.puesto!,
-      GERENCIA_ELABORA: responsables?.elabora?.gerencia!,
-      FECHA_ELABORA: `FECHA_ELABORA_${responsables?.elabora?.nombre!.replaceAll(' ', '_')!}`,
-      '[FILAS_REVISA]': filasRevisaStr,
-      '[FILAS_APRUEBA]': filasApruebaStr,
+      '[LOGO_URL]': dbPlantilla.empresa?.logo ?? '',
+      FIRMANTE_ELABORA: nombreElabora,
+      PUESTO_ELABORA: puestoElabora,
+      GERENCIA_ELABORA: gerenciaElabora,
+      FECHA_ELABORA: `FECHA_ELABORA_${nombreElaboraSlug}`,
+      '[FILAS_REVISA]': filasRevisaStr ?? '',
+      '[FILAS_APRUEBA]': filasApruebaStr ?? '',
     };
+    // ---------------------------------------------------------------
 
     const formattedHtml = this.pdfGeneratorRepository.replacePlaceholders(
-      dbPlantilla.plantilla!,
+      dbPlantilla.plantilla ?? '',
       placeholders,
     );
 
@@ -504,6 +513,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
         select: {
           cuadro_firma: {
             select: {
+              id: true,    
               titulo: true,
               descripcion: true,
               codigo: true,

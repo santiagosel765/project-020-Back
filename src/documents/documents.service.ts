@@ -324,35 +324,74 @@ export class DocumentsService {
     formattedHtml: string;
     fileName: string;
   }> {
-    try {
-      const { pdfContent, plantilladId, formattedHtml, fileName } =
-        await this.cuadroFirmasRepository.generarCuadroFirmas(
-          createCuadroFirmaDto,
-          responsables,
-        );
+    const dbPlantilla = await withPrismaRetry(
+      () =>
+        this.prisma.plantilla.findFirst({
+          where: { empresa_id: +createCuadroFirmaDto.empresa_id },
+          include: { empresa: true },
+        }),
+      this.prisma,
+    );
 
-      return {
-        pdfContent,
-        plantilladId: plantilladId,
-        formattedHtml,
-        fileName,
-      };
-    } catch (error: any) {
-      if (error instanceof HttpException) throw error;
-      if (
-        error?.code === 'P1001' ||
-        error?.code === 'P1002' ||
-        error?.code === 'P1017' ||
-        error?.message?.includes('ECONNRESET') ||
-        error?.message?.includes('server has closed the connection')
-      ) {
-        throw new ServiceUnavailableException('Intente de nuevo');
-      }
-      throw new InternalServerErrorException(
-        'Problemas al generar cuadro de firmas',
+    if (!dbPlantilla) {
+      throw new Error(
+        `La plantilla de la empresa con ID "${createCuadroFirmaDto.empresa_id}" no existe`,
       );
     }
+
+    // Defaults seguros
+    const nombreElabora = (responsables?.elabora?.nombre ?? '').trim();
+    const puestoElabora = responsables?.elabora?.puesto ?? '';
+    const gerenciaElabora = responsables?.elabora?.gerencia ?? '';
+    const nombreElaboraSlug = nombreElabora
+      ? nombreElabora.replace(/\s+/g, '_')
+      : 'ELABORA';
+
+    const filasApruebaStr = generarFilasFirmas(
+      responsables?.aprueba,
+      'APRUEBA',
+      'Aprobado por:',
+    );
+
+    const filasRevisaStr = generarFilasFirmas(
+      responsables?.revisa,
+      'REVISA',
+      'Revisado por:',
+    );
+
+    const placeholders = {
+      '[TITULO]': createCuadroFirmaDto.titulo ?? '',
+      '[CODIGO]': createCuadroFirmaDto.codigo ?? '',
+      '[VERSION]': createCuadroFirmaDto.version ?? '',
+      '[DESCRIPCION]': createCuadroFirmaDto.descripcion ?? '',
+      '[FECHA]': formatCurrentDate(),
+      '[LOGO_URL]': dbPlantilla.empresa?.logo ?? '',
+      FIRMANTE_ELABORA: nombreElabora,
+      PUESTO_ELABORA: puestoElabora,
+      GERENCIA_ELABORA: gerenciaElabora,
+      FECHA_ELABORA: `FECHA_ELABORA_${nombreElaboraSlug}`,
+      '[FILAS_REVISA]': filasRevisaStr ?? '',
+      '[FILAS_APRUEBA]': filasApruebaStr ?? '',
+    };
+
+    const formattedHtml = this.pdfGeneratorRepository.replacePlaceholders(
+      dbPlantilla.plantilla ?? '',
+      placeholders,
+    );
+
+    const { outputPath, fileName } =
+      await this.pdfGeneratorRepository.generatePDFFromHTML(formattedHtml);
+
+    const pdfContent = require('fs').readFileSync(outputPath);
+
+    return {
+      pdfContent,
+      plantilladId: dbPlantilla.id,
+      formattedHtml,
+      fileName,
+    };
   }
+
 
   /**
    * Genera y guarda un nuevo cuadro de firmas en la base de datos.
@@ -447,18 +486,30 @@ export class DocumentsService {
         +createCuadroFirmaDto.createdBy,
       );
 
+      // ... después de crear `cf` y antes del return
+
       if (roles.length > 0) {
-        const responsabilidades = await this.prisma.responsabilidad_firma.findMany({
-          where: { nombre: { in: ['ELABORA', 'REVISA', 'APRUEBA', 'ENTERADO'] } },
-        });
-        const rolIdByName = new Map<string, number>(
-          responsabilidades.map((r) => [r.nombre.toUpperCase(), r.id]),
-        );
+        // Trae todas las responsabilidades y normaliza a UPPER
+        const responsabilidades = await this.prisma.responsabilidad_firma.findMany();
+
+        const rolIdByName = new Map<string, number>();
+        for (const r of responsabilidades) {
+          const key = (r.nombre ?? '').trim().toUpperCase();
+          if (key) rolIdByName.set(key, r.id);
+        }
+
+        let inserted = 0;
 
         await this.prisma.$transaction(async (tx) => {
           for (const r of roles) {
-            const responsabilidadId = rolIdByName.get(r.roleName);
-            if (!responsabilidadId) continue;
+            const responsabilidadId = rolIdByName.get(r.roleName); // 'ELABORA'|'REVISA'|'APRUEBA'|'ENTERADO'
+            if (!responsabilidadId) {
+              this.logger.warn(
+                `[guardarCuadroFirmas] responsabilidad no encontrada: ${r.roleName}`
+              );
+              continue;
+            }
+
             await tx.cuadro_firma_user.upsert({
               where: {
                 cuadro_firma_id_user_id_responsabilidad_id: {
@@ -475,17 +526,30 @@ export class DocumentsService {
                 estaFirmado: false,
               },
             });
+
+            inserted++;
           }
         });
+
+        // Reemplaza el firmantesCreados por el conteo real
+        return {
+          id: cf.id,
+          codigo: cf.codigo ?? createCuadroFirmaDto.codigo,
+          titulo: cf.titulo,
+          url_pdf: cf.url_pdf!,
+          nombre_pdf: cf.nombre_pdf!,
+          firmantesCreados: inserted, // 👈 ahora sí es real
+        };
       }
 
+      // Si no hubo roles, conserva el return original
       return {
         id: cf.id,
-        codigo: cf.codigo,
+        codigo: cf.codigo ?? createCuadroFirmaDto.codigo,
         titulo: cf.titulo,
         url_pdf: cf.url_pdf!,
         nombre_pdf: cf.nombre_pdf!,
-        firmantesCreados: roles.length,
+        firmantesCreados: 0,
       };
     } catch (e: any) {
       this.logger.error('[createCuadroFirmas] failed', e);
