@@ -357,7 +357,7 @@ export class DocumentsService {
     createCuadroFirmaDto: CreateCuadroFirmaDto,
     responsables: ResponsablesFirmaDto,
   ): Promise<{
-    pdfContent: NonSharedBuffer;
+    pdfContent: Buffer;
     plantilladId: number;
     formattedHtml: string;
     fileName: string;

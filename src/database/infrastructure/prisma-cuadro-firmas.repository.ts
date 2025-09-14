@@ -52,7 +52,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     createCuadroFirmaDto: CreateCuadroFirmaDto,
     responsables: ResponsablesFirmaDto,
   ): Promise<{
-    pdfContent: NonSharedBuffer;
+    pdfContent: Buffer;
     plantilladId: number;
     formattedHtml: string;
     fileName: string;
@@ -557,16 +557,10 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
                 nombre_pdf: true,
                 add_date: true,
                 estado_firma: {
-                  select: {
-                    id: true,
-                    nombre: true,
-                  },
+                  select: { id: true, nombre: true },
                 },
                 empresa: {
-                  select: {
-                    id: true,
-                    nombre: true,
-                  },
+                  select: { id: true, nombre: true },
                 },
                 user: {
                   select: {
@@ -577,15 +571,16 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               },
             },
             user: true,
-        },
-        distinct: ['cuadro_firma_id'],
-      ),
+          },
+          distinct: ['cuadro_firma_id'],
+        }),
         this.prisma.cuadro_firma_user.findMany({
           where,
           select: { cuadro_firma_id: true },
           distinct: ['cuadro_firma_id'],
         }),
       ]);
+
       const totalCount = totalResult.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
