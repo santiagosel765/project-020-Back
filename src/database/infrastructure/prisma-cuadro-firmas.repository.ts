@@ -862,26 +862,29 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     try {
       const grouped = await this.prisma.cuadro_firma.groupBy({
         by: ['estado_firma_id'],
+        where: { estado_firma_id: { not: null } }, 
         _count: { _all: true },
       });
 
+      const ids = grouped.map(g => g.estado_firma_id as number);
+
+      if (ids.length === 0) {
+        return { total: 0, pendiente: 0, enProgreso: 0, rechazado: 0, completado: 0 };
+      }
+
       const estados = await this.prisma.estado_firma.findMany({
-        where: { id: { in: grouped.map((g) => g.estado_firma_id) } },
+        where: { id: { in: ids } },
         select: { id: true, nombre: true },
       });
 
-      const nameMap = new Map(estados.map((e) => [e.id, e.nombre.toLowerCase()]));
-      const stats = {
-        total: 0,
-        pendiente: 0,
-        enProgreso: 0,
-        rechazado: 0,
-        completado: 0,
-      };
+      const nameMap = new Map(estados.map(e => [e.id, e.nombre.toLowerCase()]));
 
-      grouped.forEach((g) => {
-        const nombre = nameMap.get(g.estado_firma_id);
+      const stats = { total: 0, pendiente: 0, enProgreso: 0, rechazado: 0, completado: 0 };
+
+      for (const g of grouped) {
+        const nombre = nameMap.get(g.estado_firma_id as number) ?? '';
         stats.total += g._count._all;
+
         switch (nombre) {
           case 'pendiente':
             stats.pendiente = g._count._all;
@@ -898,14 +901,11 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             stats.completado = g._count._all;
             break;
         }
-      });
+      }
 
       return stats;
     } catch (error) {
-      throw new HttpException(
-        `Problemas al obtener estadísticas: ${error}"`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException(`Problemas al obtener estadísticas: ${error}"`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
