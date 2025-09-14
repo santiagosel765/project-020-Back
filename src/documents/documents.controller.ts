@@ -97,14 +97,20 @@ export class DocumentsController {
   }
 
   @Get('cuadro-firmas/:id')
-  async findCuadroFirmas(@Param('id') id: string) {
+  async findCuadroFirmas(
+    @Param('id') id: string,
+    @Query('expiresIn') expiresIn?: string,
+  ) {
     const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id);
+    const exp = expiresIn ? +expiresIn : undefined;
     const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(
       cuadroFirmasDB.nombre_pdf,
+      exp,
     );
     const documentoDB = await this.documentsService.getDocumentoByCuadroFirmaID(+id);
     const urlDocumento = await this.documentsService.getDocumentoURLBucket(
       documentoDB.data.nombre_archivo,
+      exp,
     );
     return {
       urlCuadroFirmasPDF: urlCuadroFirmasPDF.data,

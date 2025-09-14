@@ -94,7 +94,7 @@ export class AWSService {
       Bucket: envs.bucketName,
       Key: fileKey,
       ResponseContentType: 'application/pdf',
-      ResponseContentDisposition: `inline;fileName=${fileName}.pdf`,
+      ResponseContentDisposition: `inline; filename="${fileName}.pdf"`,
     });
 
     try {

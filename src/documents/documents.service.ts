@@ -603,8 +603,12 @@ export class DocumentsService {
     }
   }
 
-  async getDocumentoURLBucket(fileName: string) {
-    const url = await this.awsService.getPresignedURL(fileName);
+  async getDocumentoURLBucket(fileName: string, expiresIn?: number) {
+    const url = await this.awsService.getPresignedURL(
+      fileName,
+      'pdf',
+      expiresIn,
+    );
     return {
       status: HttpStatus.OK,
       data: url.data,
@@ -651,6 +655,7 @@ export class DocumentsService {
           codigo: true,
           empresa_id: true,
           created_by: true,
+          add_date: true,
           user: {
             select: {
               id: true,
@@ -692,6 +697,8 @@ export class DocumentsService {
           },
           cuadro_firma_user: {
             select: {
+              estaFirmado: true,
+              fecha_firma: true,
               user: {
                 select: {
                   id: true,
@@ -702,6 +709,7 @@ export class DocumentsService {
                   segundo_apellido: true,
                   apellido_casada: true,
                   correo_institucional: true,
+                  codigo_empleado: true,
                   gerencia: {
                     select: {
                       id: true,
@@ -720,9 +728,14 @@ export class DocumentsService {
                 select: {
                   id: true,
                   nombre: true,
+                  orden: true,
                 },
               },
             },
+            orderBy: [
+              { responsabilidad_firma: { orden: 'asc' } },
+              { user: { primer_apellido: 'asc' } },
+            ],
           },
         },
       });
@@ -734,7 +747,34 @@ export class DocumentsService {
         );
       }
 
-      return cuadroFirmaDB as CuadroFirmaDB;
+      if (!cuadroFirmaDB) {
+        throw new HttpException(
+          `Cuadro de firma con ID "${id} no existe"`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const firmantes = cuadroFirmaDB.cuadro_firma_user ?? [];
+      const total = firmantes.length;
+      const firmados = firmantes.filter((f) => f.estaFirmado).length;
+      const progress = Math.round((firmados / Math.max(total, 1)) * 100);
+
+      const diasTranscurridosDocumento = Math.floor(
+        (Date.now() - (cuadroFirmaDB.add_date?.getTime() ?? Date.now())) /
+          (1000 * 60 * 60 * 24),
+      );
+
+      const firmantesWithDias = firmantes.map((f) => ({
+        ...f,
+        diasTranscurridos: diasTranscurridosDocumento,
+      }));
+
+      return {
+        ...cuadroFirmaDB,
+        progress,
+        diasTranscurridosDocumento,
+        cuadro_firma_user: firmantesWithDias,
+      } as unknown as CuadroFirmaDB;
     } catch (error) {
       return this.handleDBErrors(
         error,

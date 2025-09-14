@@ -378,6 +378,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       },
       select: {
         estaFirmado: true,
+        fecha_firma: true,
         user: {
           select: {
             id: true,
@@ -397,12 +398,13 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           select: {
             id: true,
             nombre: true,
+            orden: true,
           },
         },
       },
       orderBy: [
         { responsabilidad_firma: { orden: 'asc' } },
-        { user: { primer_nombre: 'asc' } },
+        { user: { primer_apellido: 'asc' } },
       ],
     });
   }
@@ -862,29 +864,34 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     try {
       const grouped = await this.prisma.cuadro_firma.groupBy({
         by: ['estado_firma_id'],
-        where: { estado_firma_id: { not: null } }, 
         _count: { _all: true },
       });
 
-      const ids = grouped.map(g => g.estado_firma_id as number);
-
-      if (ids.length === 0) {
-        return { total: 0, pendiente: 0, enProgreso: 0, rechazado: 0, completado: 0 };
-      }
+      // Filtrar nulls para cumplir el tipo number[]
+      const ids = grouped
+        .map((g) => g.estado_firma_id)
+        .filter((v): v is number => v !== null);
 
       const estados = await this.prisma.estado_firma.findMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids } }, // <- ids es number[]
         select: { id: true, nombre: true },
       });
 
-      const nameMap = new Map(estados.map(e => [e.id, e.nombre.toLowerCase()]));
+      const nameMap = new Map(
+        estados.map((e) => [e.id, e.nombre.toLowerCase()]),
+      );
+      const stats = {
+        total: 0,
+        pendiente: 0,
+        enProgreso: 0,
+        rechazado: 0,
+        completado: 0,
+      };
 
-      const stats = { total: 0, pendiente: 0, enProgreso: 0, rechazado: 0, completado: 0 };
-
-      for (const g of grouped) {
-        const nombre = nameMap.get(g.estado_firma_id as number) ?? '';
+      grouped.forEach((g) => {
+        if (g.estado_firma_id == null) return;
+        const nombre = nameMap.get(g.estado_firma_id); // <- clave number
         stats.total += g._count._all;
-
         switch (nombre) {
           case 'pendiente':
             stats.pendiente = g._count._all;
@@ -901,11 +908,14 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             stats.completado = g._count._all;
             break;
         }
-      }
+      });
 
       return stats;
     } catch (error) {
-      throw new HttpException(`Problemas al obtener estadísticas: ${error}"`, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        `Problemas al obtener estadísticas: ${error}"`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
