@@ -11,6 +11,8 @@ import {
   Logger,
   HttpException,
   Query,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -19,13 +21,15 @@ import {
 } from '@nestjs/platform-express';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
 import { CreateCuadroFirmaDto, ResponsablesFirmaDto } from './dto/create-cuadro-firma.dto';
-import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ResponsablesNormalizerPipe } from './pipes/responsables-normalizer.pipe';
 
+@UseGuards(JwtAuthGuard)
 @Controller('documents')
 export class DocumentsController {
   logger: Logger = new Logger(DocumentsController.name);
@@ -44,10 +48,14 @@ export class DocumentsController {
 
   @Post('cuadro-firmas/firmar')
   @UseInterceptors(FilesInterceptor('file', 1))
-  signDocumentTest(
+  signDocument(
     @UploadedFiles() files: Express.Multer.File[],
     @Body() firmaCuadroDto: FirmaCuadroDto,
+    @Req() req: any,
   ) {
+    if (req?.user?.sub !== +firmaCuadroDto.userId) {
+      throw new HttpException('Usuario no autorizado', HttpStatus.FORBIDDEN);
+    }
     const [signatureFile] = files;
     return this.documentsService.signDocument(
       firmaCuadroDto,
@@ -59,16 +67,16 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('file', 1))
   updateDocumentoAsignacion(
     @UploadedFiles() files: Express.Multer.File[],
-    @Param("id") id: string,
-    @Body('idUser') idUser: string, 
-    @Body('observaciones') observaciones: string, 
+    @Param('id') id: string,
+    @Body('userId') userId: string,
+    @Body('observaciones') observaciones: string,
   ) {
     const [pdfDocument] = files;
     return this.documentsService.updateDocumentoAsignacion(
       +id,
-      +idUser,
+      +userId,
       observaciones,
-      pdfDocument.buffer
+      pdfDocument.buffer,
     );
   }
 
@@ -90,15 +98,18 @@ export class DocumentsController {
 
   @Get('cuadro-firmas/:id')
   async findCuadroFirmas(@Param('id') id: string) {
-    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id)
-    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(cuadroFirmasDB.nombre_pdf)
+    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id);
+    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(
+      cuadroFirmasDB.nombre_pdf,
+    );
     const documentoDB = await this.documentsService.getDocumentoByCuadroFirmaID(+id);
-    const urlDocumento = await this.documentsService.getDocumentoURLBucket(documentoDB.data.nombre_archivo)
+    const urlDocumento = await this.documentsService.getDocumentoURLBucket(
+      documentoDB.data.nombre_archivo,
+    );
     return {
-      urlCuadroFirmasPDF: urlCuadroFirmasPDF.data.data,
-      urlDocumento: urlDocumento.data.data,
+      urlCuadroFirmasPDF: urlCuadroFirmasPDF.data,
+      urlDocumento: urlDocumento.data,
       ...cuadroFirmasDB,
-      
     };
   }
 
@@ -106,7 +117,8 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('file', 1))
   async guardarCuadroFirmas(
     @UploadedFiles() file: Express.Multer.File[],
-    @Body('responsables') responsables: unknown,
+    @Body('responsables', ResponsablesNormalizerPipe)
+    responsables: ResponsablesFirmaDto,
     @Body() createCuadroFirmaDto: CreateCuadroFirmaDto,
   ) {
     const [documentoPDF] = file;
@@ -206,7 +218,8 @@ export class DocumentsController {
   updateCuadroFirmas(
     @Param('id') id: string,
     @Body() updateCuadroFirmaDto: UpdateCuadroFirmaDto,
-    @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
+    @Body('responsables', ResponsablesNormalizerPipe)
+    responsables: ResponsablesFirmaDto,
   ) {
     return this.documentsService.updateCuadroFirmas(
       +id,

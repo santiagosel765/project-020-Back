@@ -7,10 +7,11 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { AWSService } from 'src/aws/aws.service';
 import { AwsModule } from 'src/aws/aws.module';
 import { DatabaseModule } from 'src/database/database.module';
+import { ResponsablesNormalizerPipe } from './pipes/responsables-normalizer.pipe';
 
 @Module({
   imports: [PdfModule, AiModule, PrismaModule, AwsModule, DatabaseModule],
   controllers: [DocumentsController],
-  providers: [DocumentsService],
+  providers: [DocumentsService, ResponsablesNormalizerPipe],
 })
 export class DocumentsModule {}

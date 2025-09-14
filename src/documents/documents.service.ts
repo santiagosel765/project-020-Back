@@ -40,7 +40,6 @@ import {
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { withPrismaRetry } from 'src/utils/prisma-retry';
-import { parseResponsables } from './utils/parse-responsables.util';
 
 @Injectable()
 export class DocumentsService {
@@ -77,7 +76,7 @@ export class DocumentsService {
 
   async updateDocumentoAsignacion(
     id: number,
-    idUser: number,
+    userId: number,
     observaciones: string,
     file: Buffer,
   ) {
@@ -86,7 +85,7 @@ export class DocumentsService {
       await this.awsService.uploadFile(file, documentoDB?.data.nombre_archivo!);
 
       const updateData = {
-        updated_by: idUser,
+        updated_by: userId,
         updated_at: new Date(),
       };
 
@@ -98,7 +97,7 @@ export class DocumentsService {
       const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
         cuadroFirmaId: id,
         estadoFirmaId: 2, // ? En Progreso
-        userId: idUser, // ? persona que actualiza el cuadro de firmas
+        userId: userId, // ? persona que actualiza el cuadro de firmas
         observaciones: observaciones ?? `Se ha actualizado el documento`,
       };
 
@@ -123,15 +122,30 @@ export class DocumentsService {
   ): Promise<any> {
     // TODO: Considerar obtener imagen firma de DB
 
-    const cuadroFirmaDB = await this.findCuadroFirmaPDF(
+    const cuadroFirmaPDF = await this.findCuadroFirmaPDF(
       +firmaCuadroDto.cuadroFirmaId,
     );
+    const estadoActual = await this.prisma.cuadro_firma.findUnique({
+      where: { id: +firmaCuadroDto.cuadroFirmaId },
+      select: { estado_firma: { select: { nombre: true } }, estado_firma_id: true },
+    });
+
+    if (
+      ['rechazado', 'finalizado'].includes(
+        estadoActual?.estado_firma?.nombre?.toLowerCase() ?? '',
+      )
+    ) {
+      throw new HttpException(
+        'El documento no admite más firmas',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
 
     // ? Validar que las personas firmen en orden
     await this.cuadroFirmasRepository.validarOrdenFirma(firmaCuadroDto);
 
     const pdfBuffer = await this.awsService.getFileBuffer(
-      cuadroFirmaDB?.nombre_pdf!,
+      cuadroFirmaPDF?.nombre_pdf!,
     );
 
     let placeholder = 'FECHA_';
@@ -178,15 +192,6 @@ export class DocumentsService {
       };
 
       
-      await this.prisma.cuadro_firma.update({
-        where: {
-          id: +firmaCuadroDto.cuadroFirmaId,
-        },
-        data: {
-          estado_firma_id: 2,
-        },
-      });
-
       await this.agregarHistorialCuadroFirma(addHistorialCuadroFirmaDto);
 
       await this.cuadroFirmasRepository.updateCuadroFirmaUser(
@@ -194,12 +199,45 @@ export class DocumentsService {
           cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
           userId: +firmaCuadroDto.userId,
           responsabilidadId: +firmaCuadroDto.responsabilidadId,
-        }, 
+        },
         {
           estaFirmado: true,
           fecha_firma: new Date(),
         }
       );
+
+      const totalFirmantes = await this.prisma.cuadro_firma_user.count({
+        where: { cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId },
+      });
+      const firmados = await this.prisma.cuadro_firma_user.count({
+        where: {
+          cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
+          estaFirmado: true,
+        },
+      });
+
+      let nuevoEstadoId: number | undefined;
+      if (estadoActual?.estado_firma_id === 4 && firmados >= 1) {
+        nuevoEstadoId = 2; // En Progreso
+      }
+      if (firmados === totalFirmantes) {
+        nuevoEstadoId = 3; // Finalizado
+      }
+      if (nuevoEstadoId) {
+        await this.prisma.cuadro_firma.update({
+          where: { id: +firmaCuadroDto.cuadroFirmaId },
+          data: { estado_firma_id: nuevoEstadoId },
+        });
+        await this.agregarHistorialCuadroFirma({
+          cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
+          estadoFirmaId: nuevoEstadoId,
+          userId: +firmaCuadroDto.userId,
+          observaciones:
+            nuevoEstadoId === 3
+              ? 'Todos los responsables han firmado'
+              : 'Documento en progreso',
+        });
+      }
 
       // await this.prisma.cuadro_firma_user.update({
       //   where: {
@@ -219,7 +257,7 @@ export class DocumentsService {
 
       await this.awsService.uploadFile(
         signedPdfBuffer!,
-        cuadroFirmaDB?.nombre_pdf!,
+        cuadroFirmaPDF?.nombre_pdf!,
       );
 
       return {
@@ -407,49 +445,42 @@ export class DocumentsService {
    */
   async guardarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
-    responsablesInput: unknown,
+    responsables: ResponsablesFirmaDto,
     documentoPDF: Buffer,
-  ): Promise<{ id: number; codigo: string; titulo: string; url_pdf: string; nombre_pdf: string; firmantesCreados: number; }> {
+  ): Promise<{
+    id: number;
+    codigo: string;
+    titulo: string;
+    url_pdf: string;
+    nombre_pdf: string;
+    firmantesCreados: number;
+  }> {
     try {
-      const resp = parseResponsables(responsablesInput);
-      if (responsablesInput && !resp) {
-        throw new BadRequestException('Formato de responsables inválido');
-      }
-
       const toArray = (v: any) => (Array.isArray(v) ? v : v ? [v] : []);
       const respUpper = {
-        ELABORA: resp?.ELABORA ?? resp?.elabora,
-        REVISA: resp?.REVISA ?? resp?.revisa,
-        APRUEBA: resp?.APRUEBA ?? resp?.aprueba,
-        ENTERADO: resp?.ENTERADO ?? resp?.enterado,
-      };
+        ELABORA: responsables?.elabora,
+        REVISA: responsables?.revisa,
+        APRUEBA: responsables?.aprueba,
+      } as any;
 
-      type RoleName = 'ELABORA' | 'REVISA' | 'APRUEBA' | 'ENTERADO';
+      type RoleName = 'ELABORA' | 'REVISA' | 'APRUEBA';
       type Assign = { userId: number; roleName: RoleName };
       const roles: Assign[] = [
         ...toArray(respUpper.ELABORA).map((x: any) => ({
-          userId: +(x.idUser ?? x.userId),
+          userId: +x.userId,
           roleName: 'ELABORA' as RoleName,
         })),
         ...toArray(respUpper.REVISA).map((x: any) => ({
-          userId: +(x.idUser ?? x.userId),
+          userId: +x.userId,
           roleName: 'REVISA' as RoleName,
         })),
         ...toArray(respUpper.APRUEBA).map((x: any) => ({
-          userId: +(x.idUser ?? x.userId),
+          userId: +x.userId,
           roleName: 'APRUEBA' as RoleName,
-        })),
-        ...toArray(respUpper.ENTERADO).map((x: any) => ({
-          userId: +(x.idUser ?? x.userId),
-          roleName: 'ENTERADO' as RoleName,
         })),
       ].filter((a) => Number.isFinite(a.userId));
 
-      const respDto: ResponsablesFirmaDto = {
-        elabora: toArray(respUpper.ELABORA)[0],
-        revisa: toArray(respUpper.REVISA),
-        aprueba: toArray(respUpper.APRUEBA),
-      };
+      const respDto: ResponsablesFirmaDto = responsables;
 
       const exists = await withPrismaRetry(
         () => this.prisma.cuadro_firma.findUnique({
@@ -575,8 +606,8 @@ export class DocumentsService {
   async getDocumentoURLBucket(fileName: string) {
     const url = await this.awsService.getPresignedURL(fileName);
     return {
-      status: HttpStatus.ACCEPTED,
-      data: url,
+      status: HttpStatus.OK,
+      data: url.data,
     };
   }
 
@@ -891,9 +922,15 @@ export class DocumentsService {
     };
   }
 
-  async getAsignacionesByUserId(userId: number, paginationDto: PaginationDto) {
+  async getAsignacionesByUserId(
+    userId: number,
+    paginationDto: PaginationDto,
+  ) {
     const asignaciones =
-      await this.cuadroFirmasRepository.getAsignacionesByUserId(userId, paginationDto);
+      await this.cuadroFirmasRepository.getAsignacionesByUserId(
+        userId,
+        paginationDto,
+      );
     if (asignaciones.asignaciones.length === 0) {
       return {
         status: HttpStatus.BAD_REQUEST,
@@ -901,22 +938,35 @@ export class DocumentsService {
       };
     }
     return {
-      status: HttpStatus.ACCEPTED,
-      data: asignaciones,
+      status: HttpStatus.OK,
+      data: {
+        items: asignaciones.asignaciones,
+        total: asignaciones.meta.totalCount,
+        page: asignaciones.meta.page,
+        limit: asignaciones.meta.limit,
+      },
     };
   }
+
   async getSupervisionDocumentos(paginationDto: PaginationDto) {
-    const asignaciones =
-      await this.cuadroFirmasRepository.getSupervisionDocumentos(paginationDto);
-    if (asignaciones.documentos.length === 0) {
+    const documentos =
+      await this.cuadroFirmasRepository.getSupervisionDocumentos(
+        paginationDto,
+      );
+    if (documentos.documentos.length === 0) {
       return {
         status: HttpStatus.BAD_REQUEST,
         data: `No hay documentos registrados en la plataforma"`,
       };
     }
     return {
-      status: HttpStatus.ACCEPTED,
-      data: asignaciones,
+      status: HttpStatus.OK,
+      data: {
+        items: documentos.documentos,
+        total: documentos.meta.totalCount,
+        page: documentos.meta.page,
+        limit: documentos.meta.limit,
+      },
     };
   }
 }
