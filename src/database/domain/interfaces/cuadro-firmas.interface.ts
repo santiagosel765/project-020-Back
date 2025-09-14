@@ -1,5 +1,5 @@
 export interface GenerarCuadroFirmasResult {
-  pdfContent: NonSharedBuffer;
+  pdfContent: Buffer;
   plantilladId: number;
   formattedHtml: string;
   fileName: string;
