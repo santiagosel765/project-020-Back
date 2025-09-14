@@ -4,6 +4,7 @@
 ## sql ##
 sql
 *.sql
+!prisma/migrations/**/*.sql
 
 ### dotenv ###
 .env
@@ -183,7 +184,7 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/node,macos,dotenv
 
 tmp/
-test/
+# se permiten pruebas e2e
 generated/
 
 prisma/.DS_Store

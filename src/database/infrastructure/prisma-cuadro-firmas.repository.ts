@@ -477,7 +477,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
         cuadroFirmaId: updateEstadoAsignacion.idCuadroFirma,
         estadoFirmaId: updateEstadoAsignacion.idEstadoFirma,
-        userId: updateEstadoAsignacion.idUser, // ? persona que actualiza el cuadro de firmas
+        userId: updateEstadoAsignacion.userId, // ? persona que actualiza el cuadro de firmas
         observaciones:
           updateEstadoAsignacion.observaciones ??
           `La asignación ha pasado al estado ${updateEstadoAsignacion.nombreEstadoFirma}`,
@@ -502,49 +502,91 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
   async getAsignacionesByUserId(userId: number, paginationDto: PaginationDto) {
     try {
-      const { page = 1, limit = 10 } = paginationDto;
+      const {
+        page = 1,
+        limit = 10,
+        estado,
+        search,
+        empresa,
+        sort = 'desc',
+      } = paginationDto;
 
-      const result = await this.prisma.cuadro_firma_user.findMany({
-        take: limit,
-        skip: (page - 1) * limit,
-        where: {
-          user_id: userId,
-        },
-        select: {
-          cuadro_firma: {
-            select: {
-              id: true,    
-              titulo: true,
-              descripcion: true,
-              codigo: true,
-              version: true,
-              nombre_pdf: true,
-              add_date: true,
-              estado_firma: {
-                select: {
-                  id: true,
-                  nombre: true,
-                },
+      const where: any = {
+        user_id: userId,
+        ...(estado || search || empresa
+          ? {
+              cuadro_firma: {
+                ...(estado
+                  ? {
+                      estado_firma: {
+                        nombre: { equals: estado, mode: 'insensitive' },
+                      },
+                    }
+                  : {}),
+                ...(empresa ? { empresa_id: empresa } : {}),
+                ...(search
+                  ? {
+                      OR: [
+                        { titulo: { contains: search, mode: 'insensitive' } },
+                        { descripcion: { contains: search, mode: 'insensitive' } },
+                        { codigo: { contains: search, mode: 'insensitive' } },
+                      ],
+                    }
+                  : {}),
               },
-              empresa: {
-                select: {
-                  id: true,
-                  nombre: true,
+            }
+          : {}),
+      };
+
+      const [result, totalResult] = await this.prisma.$transaction([
+        this.prisma.cuadro_firma_user.findMany({
+          take: limit,
+          skip: (page - 1) * limit,
+          where,
+          orderBy: {
+            cuadro_firma: { add_date: sort === 'asc' ? 'asc' : 'desc' },
+          },
+          select: {
+            cuadro_firma: {
+              select: {
+                id: true,
+                titulo: true,
+                descripcion: true,
+                codigo: true,
+                version: true,
+                nombre_pdf: true,
+                add_date: true,
+                estado_firma: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                  },
                 },
-              },
-              user: {
-                select: {
-                  correo_institucional: true,
-                  codigo_empleado: true,
+                empresa: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                  },
+                },
+                user: {
+                  select: {
+                    correo_institucional: true,
+                    codigo_empleado: true,
+                  },
                 },
               },
             },
-          },
-          user: true,
+            user: true,
         },
         distinct: ['cuadro_firma_id'],
-      });
-      const totalCount = result.length;
+      ),
+        this.prisma.cuadro_firma_user.findMany({
+          where,
+          select: { cuadro_firma_id: true },
+          distinct: ['cuadro_firma_id'],
+        }),
+      ]);
+      const totalCount = totalResult.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
@@ -595,67 +637,83 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
   }
   async getSupervisionDocumentos(paginationDto: PaginationDto) {
     try {
-      const { page = 1, limit = 10 } = paginationDto;
+      const {
+        page = 1,
+        limit = 10,
+        estado,
+        search,
+        empresa,
+        sort = 'desc',
+      } = paginationDto;
 
-      const result = await this.prisma.cuadro_firma.findMany({
-        take: limit,
-        skip: (page - 1) * limit,
-        select: {
-          id: true,
-          titulo: true,
-          descripcion: true,
-          codigo: true,
-          version: true,
-          add_date: true,
-          estado_firma: {
-            select: {
-              id: true,
-              nombre: true,
+      const where: any = {
+        ...(estado
+          ? { estado_firma: { nombre: { equals: estado, mode: 'insensitive' } } }
+          : {}),
+        ...(empresa ? { empresa_id: empresa } : {}),
+        ...(search
+          ? {
+              OR: [
+                { titulo: { contains: search, mode: 'insensitive' } },
+                { descripcion: { contains: search, mode: 'insensitive' } },
+                { codigo: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      };
+
+      const [result, totalCount] = await this.prisma.$transaction([
+        this.prisma.cuadro_firma.findMany({
+          take: limit,
+          skip: (page - 1) * limit,
+          where,
+          orderBy: { add_date: sort === 'asc' ? 'asc' : 'desc' },
+          select: {
+            id: true,
+            titulo: true,
+            descripcion: true,
+            codigo: true,
+            version: true,
+            add_date: true,
+            estado_firma: {
+              select: { id: true, nombre: true },
+            },
+            empresa: {
+              select: { id: true, nombre: true },
             },
           },
-          empresa: {
-            select: {
-              id: true,
-              nombre: true,
-            },
-          },
+        }),
+        this.prisma.cuadro_firma.count({ where }),
+      ]);
 
-        },
-      });
-
-      const totalCount = result.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
-      const mapped = await Promise.all(result.map(async (item) => {
-        // ? Calcula días solo si el estado no es Rechazado ni Finalizado
-        let diasTranscurridos: number | undefined = undefined;
-        const estado = item.estado_firma!.nombre?.toLowerCase();
-        if (estado !== 'rechazado' && estado !== 'finalizado') {
-          const fechaCreacion = item.add_date;
-          const hoy = new Date();
-          diasTranscurridos = Math.floor(
-            (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
-              (1000 * 60 * 60 * 24),
-          );
-        }
-        // ? Obtiene la observación más reciente del historial
-        const historial = await this.prisma.cuadro_firma_estado_historial.findFirst(
-          { 
-            where: { cuadro_firma_id: item.id },
-            orderBy: { fecha_observacion: 'desc' },
-          },
-          
-        );
+      const mapped = await Promise.all(
+        result.map(async (item) => {
+          let diasTranscurridos: number | undefined = undefined;
+          const estado = item.estado_firma!.nombre?.toLowerCase();
+          if (estado !== 'rechazado' && estado !== 'finalizado') {
+            const fechaCreacion = item.add_date;
+            const hoy = new Date();
+            diasTranscurridos = Math.floor(
+              (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+          }
+          const historial =
+            await this.prisma.cuadro_firma_estado_historial.findFirst({
+              where: { cuadro_firma_id: item.id },
+              orderBy: { fecha_observacion: 'desc' },
+            });
 
-        return {
-          ...item,
-          diasTranscurridos,
-          descripcionEstado: historial?.observaciones
-        };
-      }));
-
-      console.log({mapped})
+          return {
+            ...item,
+            diasTranscurridos,
+            descripcionEstado: historial?.observaciones,
+          };
+        }),
+      );
 
       return {
         documentos: mapped,
