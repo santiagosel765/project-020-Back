@@ -967,4 +967,12 @@ export class DocumentsService {
       },
     };
   }
+
+  async getSupervisionStats() {
+    const stats = await this.cuadroFirmasRepository.getSupervisionStats();
+    return {
+      status: HttpStatus.OK,
+      data: stats,
+    };
+  }
 }

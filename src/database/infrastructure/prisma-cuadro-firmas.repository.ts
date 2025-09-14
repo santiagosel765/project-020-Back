@@ -524,6 +524,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
         search,
         empresa,
         sort = 'desc',
+        includeFirmantes = true,
       } = paginationDto;
 
       const where: any = {
@@ -718,6 +719,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
         search,
         empresa,
         sort = 'desc',
+        includeFirmantes = true,
       } = paginationDto;
 
       const where: any = {
@@ -763,6 +765,42 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
+      let firmantesMap = new Map<number, any[]>();
+      if (includeFirmantes && result.length > 0) {
+        const firmantes = await this.prisma.cuadro_firma_user.findMany({
+          where: { cuadro_firma_id: { in: result.map((r) => r.id) } },
+          select: {
+            cuadro_firma_id: true,
+            user: {
+              select: {
+                id: true,
+                primer_nombre: true,
+                primer_apellido: true,
+                url_foto: true,
+              },
+            },
+            responsabilidad_firma: { select: { nombre: true, orden: true } },
+          },
+          orderBy: [
+            { responsabilidad_firma: { orden: 'asc' } },
+            { user: { primer_nombre: 'asc' } },
+          ],
+        });
+
+        firmantesMap = firmantes.reduce((acc, f) => {
+          const nombre = `${f.user.primer_nombre} ${f.user.primer_apellido}`.trim();
+          const list = acc.get(f.cuadro_firma_id) ?? [];
+          list.push({
+            id: f.user.id,
+            nombre,
+            urlFoto: f.user.url_foto,
+            responsabilidad: f.responsabilidad_firma?.nombre ?? '',
+          });
+          acc.set(f.cuadro_firma_id, list);
+          return acc;
+        }, new Map<number, any[]>());
+      }
+
       const mapped = await Promise.all(
         result.map(async (item) => {
           let diasTranscurridos: number | undefined = undefined;
@@ -781,10 +819,21 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               orderBy: { fecha_observacion: 'desc' },
             });
 
+          const firmantesResumen = includeFirmantes
+            ? (firmantesMap.get(item.id) || []).map((f) => ({
+                id: f.id,
+                nombre: f.nombre,
+                iniciales: getInitials(f.nombre),
+                urlFoto: f.urlFoto ?? null,
+                responsabilidad: f.responsabilidad,
+              }))
+            : [];
+
           return {
             ...item,
             diasTranscurridos,
             descripcionEstado: historial?.observaciones,
+            firmantesResumen,
           };
         }),
       );
@@ -804,6 +853,57 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     } catch (error) {
       throw new HttpException(
         `Problemas al obtener documentos: ${error}"`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getSupervisionStats() {
+    try {
+      const grouped = await this.prisma.cuadro_firma.groupBy({
+        by: ['estado_firma_id'],
+        _count: { _all: true },
+      });
+
+      const estados = await this.prisma.estado_firma.findMany({
+        where: { id: { in: grouped.map((g) => g.estado_firma_id) } },
+        select: { id: true, nombre: true },
+      });
+
+      const nameMap = new Map(estados.map((e) => [e.id, e.nombre.toLowerCase()]));
+      const stats = {
+        total: 0,
+        pendiente: 0,
+        enProgreso: 0,
+        rechazado: 0,
+        completado: 0,
+      };
+
+      grouped.forEach((g) => {
+        const nombre = nameMap.get(g.estado_firma_id);
+        stats.total += g._count._all;
+        switch (nombre) {
+          case 'pendiente':
+            stats.pendiente = g._count._all;
+            break;
+          case 'en progreso':
+          case 'en proceso':
+            stats.enProgreso = g._count._all;
+            break;
+          case 'rechazado':
+            stats.rechazado = g._count._all;
+            break;
+          case 'finalizado':
+          case 'completado':
+            stats.completado = g._count._all;
+            break;
+        }
+      });
+
+      return stats;
+    } catch (error) {
+      throw new HttpException(
+        `Problemas al obtener estadísticas: ${error}"`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

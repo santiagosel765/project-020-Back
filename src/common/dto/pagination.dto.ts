@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsOptional, IsPositive, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsPositive, IsString } from 'class-validator';
 
 export class PaginationDto {
 
@@ -28,5 +28,10 @@ export class PaginationDto {
   @IsOptional()
   @IsString()
   sort?: 'asc' | 'desc' = 'desc';
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  includeFirmantes?: boolean = true;
 
 }
