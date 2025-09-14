@@ -202,6 +202,11 @@ export class DocumentsController {
   ) {
     return this.documentsService.getSupervisionDocumentos(paginationDto);
   }
+
+  @Get('cuadro-firmas/documentos/supervision/stats')
+  getSupervisionStats() {
+    return this.documentsService.getSupervisionStats();
+  }
   
   
   @Patch('cuadro-firmas/estado')

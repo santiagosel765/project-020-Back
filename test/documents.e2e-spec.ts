@@ -53,6 +53,41 @@ const documentsServiceMock = {
       },
     ],
   }),
+  getSupervisionDocumentos: jest.fn().mockResolvedValue({
+    status: HttpStatus.OK,
+    data: {
+      items: [
+        {
+          id: 30,
+          titulo: 'Documento de Prueba 01',
+          descripcion: 'Documento de Prueba descripcion 01',
+          codigo: 'PR-001',
+          version: '2.0',
+          add_date: '2025-09-14T10:35:23.313Z',
+          estado_firma: { id: 4, nombre: 'Pendiente' },
+          empresa: { id: 1, nombre: 'FGE' },
+          diasTranscurridos: 0,
+          descripcionEstado: 'Cuadro de firmas generado',
+          firmantesResumen: [
+            {
+              id: 46,
+              nombre: 'Admin User',
+              iniciales: 'AU',
+              urlFoto: null,
+              responsabilidad: 'Elabora',
+            },
+          ],
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 10,
+    },
+  }),
+  getSupervisionStats: jest.fn().mockResolvedValue({
+    status: HttpStatus.OK,
+    data: { total: 1, pendiente: 1, enProgreso: 0, rechazado: 0, completado: 0 },
+  }),
 };
 
 @UseGuards(JwtAuthGuard)
@@ -71,6 +106,16 @@ class TestDocumentsController {
   @Get('cuadro-firmas/firmantes/:id')
   getUsuariosFirmantesCuadroFirmas(@Param('id') id: string) {
     return this.documentsService.getUsuariosFirmantesCuadroFirmas(+id);
+  }
+
+  @Get('cuadro-firmas/documentos/supervision')
+  getSupervision(@Query() query: any) {
+    return this.documentsService.getSupervisionDocumentos(query);
+  }
+
+  @Get('cuadro-firmas/documentos/supervision/stats')
+  getSupervisionStats() {
+    return this.documentsService.getSupervisionStats();
   }
 }
 
@@ -120,5 +165,23 @@ describe('DocumentsController (e2e)', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data[0]).toHaveProperty('user');
     expect(res.body.data[0]).toHaveProperty('responsabilidad_firma');
+  });
+
+  it('supervision returns firmantesResumen and pagination data', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/documents/cuadro-firmas/documentos/supervision?page=1&limit=10')
+      .expect(HttpStatus.OK);
+
+    expect(res.body.data.items[0].firmantesResumen).toBeDefined();
+    expect(res.body.data.total).toBe(1);
+  });
+
+  it('supervision stats returns counts', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/documents/cuadro-firmas/documentos/supervision/stats')
+      .expect(HttpStatus.OK);
+
+    expect(res.body.data).toHaveProperty('total');
+    expect(res.body.data).toHaveProperty('pendiente');
   });
 });
