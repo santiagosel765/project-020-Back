@@ -52,7 +52,7 @@ export const envs = {
   bucketSignaturesPrefix:
     (value.S3_BUCKET_SIGNATURES_PREFIX as string | undefined) ??
     (value.BUCKET_SIGNATURES_PREFIX as string | undefined) ??
-    '',
+    'signatures',
   bucketAccessKeyID: value.S3_BUCKET_ACCESS_KEY_ID as string | undefined,
   bucketSecretKey: value.S3_BUCKET_SECRET_KEY as string | undefined,
 

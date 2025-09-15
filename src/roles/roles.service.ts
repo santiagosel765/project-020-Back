@@ -5,15 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from 'generated/prisma'; 
+import { Prisma } from 'generated/prisma';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
-
-interface PageDto {
-  id: number;
-  nombre: string;
-  url: string;
-}
+import { PageDto } from '../shared/dto';
 
 @Injectable()
 export class RolesService {
@@ -136,7 +131,6 @@ export class RolesService {
       return { paginaIds: uniqueIds };
     });
   }
-
   async getPagesForUser(userId: number): Promise<PageDto[]> {
     const roles = await this.prisma.rol_usuario.findMany({
       where: {
@@ -163,7 +157,14 @@ export class RolesService {
       orderBy: { id: 'asc' },
     });
 
-    return pages;
+    return pages.map((p) => ({
+      id: p.id,
+      code: p.nombre,
+      name: p.nombre,
+      path: p.url,
+      icon: null,
+      order: null,
+    }));
   }
 
   // NUEVO MÉTODO

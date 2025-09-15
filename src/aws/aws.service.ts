@@ -9,6 +9,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { envs } from 'src/config/envs';
 import { Readable } from 'stream';
 
+type UploadOptions = { keyPrefix?: string; contentType?: string; customKey?: string; };
 @Injectable()
 export class AWSService {
   private readonly logger: Logger = new Logger(AWSService.name);
@@ -34,48 +35,28 @@ export class AWSService {
    * @param fileExtension - Extensión del archivo (por defecto "pdf").
    * @returns Un objeto con la clave del archivo (`fileKey`) si la subida fue exitosa, o un objeto con estado `error` y mensaje descriptivo si falla.
    */
+
   async uploadFile(
     fileBuffer: Buffer,
     fileName: string,
-    fileExtension: 'png' | 'jpg' | 'jpeg' | 'pdf' = 'pdf',
-    options?: {
-      keyPrefix?: string;
-      contentType?: string;
-      customKey?: string;
-    },
+    fileExtension = 'pdf',
+    opts: UploadOptions = {},
   ) {
-    const keyPrefix = options?.keyPrefix ?? envs.bucketPrefix;
-    const fileKey = options?.customKey ?? `${keyPrefix}/${fileName}.${fileExtension}`;
-    const uploadParams: any = {
-      Bucket: envs.bucketName,
-      Key: fileKey,
-      Body: fileBuffer,
-    };
-    if (options?.contentType) {
-      uploadParams.ContentType = options.contentType;
-    }
+    const key =
+      opts.customKey ??
+      `${opts.keyPrefix ?? envs.bucketPrefix}/${fileName}.${fileExtension}`;
 
-    try {
-      const s3Response = await this.s3Client.send(
-        new PutObjectCommand(uploadParams),
-      );
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: envs.bucketName,
+        Key: key,
+        Body: fileBuffer,
+        ContentType: opts.contentType,
+      }),
+    );
 
-      this.logger.log(`S3 response: ${s3Response}`);
-      this.logger.log(`File key: ${fileKey}`);
-
-      return {
-        fileKey,
-      };
-    } catch (error) {
-      const errMsg = `Problemas al subir archivo "${fileName}" al bucket. Error: ${error}`;
-      this.logger.error(errMsg);
-      return {
-        status: 'error',
-        data: errMsg,
-      };
-    }
+    return { fileKey: key };
   }
-
   /**
    * Genera una URL prefirmada (presigned URL) para acceder temporalmente a un archivo en S3.
    *
@@ -123,29 +104,20 @@ export class AWSService {
     }
   }
 
+
   async getPresignedURLByKey(
     fileKey: string,
-    contentType?: string,
-    expiresIn = 3600,
+    responseContentType = 'application/octet-stream',
+    expireTime = 3600,
   ) {
     const command = new GetObjectCommand({
       Bucket: envs.bucketName,
       Key: fileKey,
-      ...(contentType ? { ResponseContentType: contentType } : {}),
+      ResponseContentType: responseContentType,
     });
-
-    try {
-      const url = await getSignedUrl(this.s3Client, command, {
-        expiresIn,
-      });
-      return { status: 'success', data: url };
-    } catch (error) {
-      const errMsg = `Problemas al obtener url del archivo "${fileKey}" al bucket. Error: ${error}`;
-      this.logger.error(errMsg);
-      return { status: 'error', data: errMsg };
-    }
+    const url = await getSignedUrl(this.s3Client, command, { expiresIn: expireTime });
+    return { status: 'success', data: url };
   }
-
   /**
    * Verifica si un archivo existe en el bucket S3 configurado.
    *
