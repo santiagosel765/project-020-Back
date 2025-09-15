@@ -7,6 +7,7 @@ import { RolesService } from '../roles/roles.service';
 import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
 import { UpdateSignatureDto } from './dto/update-signature.dto';
+import { MeResponseDto } from 'src/shared/dto';
 
 @Injectable()
 export class UsersService {
@@ -54,7 +55,7 @@ export class UsersService {
     return this.prisma.user.delete({ where: { id } });
   }
 
-  async me(id: number) {
+  async me(id: number): Promise<MeResponseDto> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -63,7 +64,10 @@ export class UsersService {
         correo_institucional: true,
       },
     });
-    if (!user) return null;
+    if (!user) {
+      throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
+    }
+
     const [pages, roles] = await Promise.all([
       this.rolesService.getPagesForUser(user.id),
       this.rolesService.getRoleNamesForUser(user.id),
@@ -71,9 +75,13 @@ export class UsersService {
 
     const fileKey = `${envs.bucketSignaturesPrefix}/${id}/current.png`;
     const exists = await this.awsService.checkFileAvailabilityInBucket(fileKey);
+
     let url: string | null = null;
     if (exists) {
-      const presigned = await this.awsService.getPresignedURLByKey(fileKey);
+      const presigned = await this.awsService.getPresignedURLByKey(
+        fileKey,
+        'image/png',
+      );
       url = presigned.data;
     }
 
@@ -87,7 +95,6 @@ export class UsersService {
       hasSignature: exists,
     };
   }
-
   async updateSignature(
     userId: number,
     file?: Express.Multer.File,
@@ -137,13 +144,12 @@ export class UsersService {
 
     const fileKey = `${envs.bucketSignaturesPrefix}/${userId}/current.png`;
     await this.awsService.uploadFile(buffer, 'signature', 'png', {
-      keyPrefix: envs.bucketSignaturesPrefix,
-      contentType: contentType ?? 'image/png',
       customKey: fileKey,
+      contentType: contentType ?? 'image/png',
     });
     const url = await this.awsService.getPresignedURLByKey(
       fileKey,
-      contentType ?? 'image/png',
+      'image/png',
     );
     return {
       status: 'success',
