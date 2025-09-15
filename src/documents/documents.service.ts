@@ -116,15 +116,59 @@ export class DocumentsService {
     }
   }
 
+  private async buildPlaceholderFromDB(
+    cuadroFirmaId: number,
+    responsabilidadId: number,
+    nombreResponsabilidad: string,
+  ): Promise<string> {
+    const responsable = await this.prisma.cuadro_firma_user.findFirst({
+      where: {
+        cuadro_firma_id: cuadroFirmaId,
+        responsabilidad_id: responsabilidadId,
+      },
+      include: { user: true },
+    });
+
+    if (!responsable?.user) {
+      throw new BadRequestException(
+        `No se encontró responsable de "${nombreResponsabilidad}"`,
+      );
+    }
+
+    const u = responsable.user;
+    const nombreCompleto = [
+      u.primer_nombre,
+      u.segundo_name,
+      u.tercer_nombre,
+      u.primer_apellido,
+      u.segundo_apellido,
+      u.apellido_casada,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const slug = nombreCompleto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '_');
+
+    const resp = nombreResponsabilidad.toUpperCase();
+    return `FECHA_${resp}_${slug}`;
+  }
+
   async signDocument(
     firmaCuadroDto: FirmaCuadroDto,
     signatureFileBuffer: Buffer,
   ): Promise<any> {
-    // TODO: Considerar obtener imagen firma de DB
+    this.logger.log(
+      `signDocument => cf:${firmaCuadroDto.cuadroFirmaId}, user:${firmaCuadroDto.userId}, respId:${firmaCuadroDto.responsabilidadId}, resp:${firmaCuadroDto.nombreResponsabilidad}, useStored:${firmaCuadroDto.useStoredSignature}`,
+    );
 
     const cuadroFirmaPDF = await this.findCuadroFirmaPDF(
       +firmaCuadroDto.cuadroFirmaId,
     );
+    this.logger.log(`nombre_pdf=${cuadroFirmaPDF?.nombre_pdf}`);
     const estadoActual = await this.prisma.cuadro_firma.findUnique({
       where: { id: +firmaCuadroDto.cuadroFirmaId },
       select: { estado_firma: { select: { nombre: true } }, estado_firma_id: true },
@@ -148,31 +192,37 @@ export class DocumentsService {
       cuadroFirmaPDF?.nombre_pdf!,
     );
 
-    let placeholder = 'FECHA_';
-    const nombreCompleto = firmaCuadroDto.nombreUsuario.replaceAll(' ', '_');
-    switch (firmaCuadroDto.nombreResponsabilidad) {
-      case 'Aprueba':
-        placeholder += `APRUEBA_${nombreCompleto}`;
-        break;
-      case 'Revisa':
-        placeholder += `REVISA_${nombreCompleto}`;
-        break;
-      case 'Enterado':
-        placeholder += `ENTERADO_${nombreCompleto}`;
-        break;
-      case 'Elabora':
-        placeholder += `ELABORA_${nombreCompleto}`;
-        break;
-      default:
-        break;
+    if (!pdfBuffer?.length) {
+      throw new BadRequestException('El PDF base está vacío');
     }
 
+    if (!signatureFileBuffer?.length) {
+      throw new BadRequestException(
+        'El usuario no tiene firma registrada en S3',
+      );
+    }
+
+    const placeholder = await this.buildPlaceholderFromDB(
+      +firmaCuadroDto.cuadroFirmaId,
+      +firmaCuadroDto.responsabilidadId,
+      firmaCuadroDto.nombreResponsabilidad,
+    );
+    this.logger.log(
+      `signatureBuffer size=${signatureFileBuffer.length}, placeholder=${placeholder}`,
+    );
+
     const signedPdfBuffer = await this.pdfRepository.insertSignature(
-      pdfBuffer!,
+      pdfBuffer,
       signatureFileBuffer,
       placeholder,
       null as any,
     );
+
+    if (!signedPdfBuffer?.length) {
+      throw new BadRequestException(
+        `No se encontró el área de firma para "${firmaCuadroDto.nombreResponsabilidad}" (placeholder=${placeholder})`,
+      );
+    }
 
     try {
       // await this.prisma.cuadro_firma.update({
@@ -256,8 +306,11 @@ export class DocumentsService {
       // });
 
       await this.awsService.uploadFile(
-        signedPdfBuffer!,
+        signedPdfBuffer,
         cuadroFirmaPDF?.nombre_pdf!,
+      );
+      this.logger.log(
+        `signed size=${signedPdfBuffer.length} uploaded=${cuadroFirmaPDF?.nombre_pdf}`,
       );
 
       return {
@@ -265,6 +318,7 @@ export class DocumentsService {
         data: 'Documento firmado exitosamente',
       };
     } catch (error) {
+      this.logger.error(`Error firmando documento: ${error}`);
       throw new HttpException(
         `Problemas al generar archivo de salida: ${error}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
