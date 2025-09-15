@@ -3,6 +3,6 @@ export interface PageDto {
   code: string;
   name: string;
   path: string;
-  icon?: string | null;
-  order?: number | null;
+  icon: string | null; 
+  order: number | null;
 }
