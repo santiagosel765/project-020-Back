@@ -8,20 +8,20 @@ import {
   Delete,
   UseGuards,
   Req,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesService } from '../roles/roles.service';
-import { MeResponseDto, MePageDto } from './dto/me-response.dto';
+import { MeResponseDto } from './dto/me-response.dto';
+import { UpdateSignatureDto } from './dto/update-signature.dto';
 
 @Controller('users')
 export class UsersController {
-  constructor(
-    private readonly usersService: UsersService,
-    private readonly rolesService: RolesService,
-  ) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
@@ -35,20 +35,19 @@ export class UsersController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async me(@Req() req: any): Promise<MeResponseDto | null> {
-    const user = await this.usersService.findOne(req.user.sub);
-    if (!user) return null;
-    const [pages, roles] = await Promise.all([
-      this.rolesService.getPagesForUser(user.id),
-      this.rolesService.getRoleNamesForUser(user.id),
-    ]);
-    return {
-      id: user.id,
-      nombre: user.primer_nombre,
-      correo: user.correo_institucional,
-      pages: pages as MePageDto[],
-      roles,
-    };
+  me(@Req() req: any): Promise<MeResponseDto | null> {
+    return this.usersService.me(req.user.sub);
+  }
+
+  @Patch('me/signature')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FilesInterceptor('file', 1))
+  updateSignature(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body() dto: UpdateSignatureDto,
+    @Req() req: any,
+  ) {
+    return this.usersService.updateSignature(req.user.sub, files?.[0], dto);
   }
 
   @Get(':id')

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString } from "class-validator";
+import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class FirmaCuadroDto {
 
@@ -18,5 +18,8 @@ export class FirmaCuadroDto {
     @IsNotEmpty()
     @IsString()
     nombreResponsabilidad: string;
+
+    @IsOptional()
+    useStoredSignature?: string | boolean;
 
 }

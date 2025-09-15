@@ -37,7 +37,10 @@ export class PdfLibRepository implements PdfRepository {
       return null;
     }
 
-    const signatureImage = await pdfDoc.embedPng(signatureBuffer);
+    const signatureImage =
+      signatureBuffer[0] === 0xff && signatureBuffer[1] === 0xd8
+        ? await pdfDoc.embedJpg(signatureBuffer)
+        : await pdfDoc.embedPng(signatureBuffer);
     const page = pdfDoc.getPage(res.page);
 
     const coordsX = res.x - 120;
@@ -104,7 +107,10 @@ export class PdfLibRepository implements PdfRepository {
           `No fue posible encontrar las coordenadas de la firma #${index} con placeholder "${signature.placeholder}"`,
         );
       }
-      const signatureImage = await pdfDoc.embedPng(signature.signature);
+      const signatureImage =
+        signature.signature[0] === 0xff && signature.signature[1] === 0xd8
+          ? await pdfDoc.embedJpg(signature.signature)
+          : await pdfDoc.embedPng(signature.signature);
       const page = pdfDoc.getPage(res.page);
       this.logger.log(`Coordenadas para la firma: (${res.x}, ${res.y})`);
       page.drawImage(signatureImage, {

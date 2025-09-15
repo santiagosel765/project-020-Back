@@ -28,13 +28,18 @@ import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ResponsablesNormalizerPipe } from './pipes/responsables-normalizer.pipe';
+import { AWSService } from 'src/aws/aws.service';
+import { envs } from 'src/config/envs';
 
 @UseGuards(JwtAuthGuard)
 @Controller('documents')
 export class DocumentsController {
   logger: Logger = new Logger(DocumentsController.name);
 
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    private readonly awsService: AWSService,
+  ) {}
 
   @Post()
   @UseInterceptors(FilesInterceptor('file', 1))
@@ -48,7 +53,7 @@ export class DocumentsController {
 
   @Post('cuadro-firmas/firmar')
   @UseInterceptors(FilesInterceptor('file', 1))
-  signDocument(
+  async signDocument(
     @UploadedFiles() files: Express.Multer.File[],
     @Body() firmaCuadroDto: FirmaCuadroDto,
     @Req() req: any,
@@ -56,10 +61,33 @@ export class DocumentsController {
     if (req?.user?.sub !== +firmaCuadroDto.userId) {
       throw new HttpException('Usuario no autorizado', HttpStatus.FORBIDDEN);
     }
-    const [signatureFile] = files;
+    const [signatureFile] = files ?? [];
+    if (signatureFile) {
+      return this.documentsService.signDocument(
+        firmaCuadroDto,
+        signatureFile.buffer,
+      );
+    }
+
+    const useStored =
+      firmaCuadroDto.useStoredSignature === true ||
+      firmaCuadroDto.useStoredSignature === 'true';
+    if (!useStored) {
+      throw new HttpException('No se adjuntó archivo de firma', HttpStatus.BAD_REQUEST);
+    }
+
+    const fileKey = `${envs.bucketSignaturesPrefix}/${req.user.sub}/current.png`;
+    const exists = await this.awsService.checkFileAvailabilityInBucket(fileKey);
+    if (!exists) {
+      throw new HttpException(
+        'El usuario no tiene firma registrada en S3',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const signatureBuffer = await this.awsService.getFileBufferByKey(fileKey);
     return this.documentsService.signDocument(
       firmaCuadroDto,
-      signatureFile.buffer,
+      signatureBuffer,
     );
   }
 

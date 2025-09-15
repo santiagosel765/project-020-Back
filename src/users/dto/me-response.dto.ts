@@ -10,4 +10,6 @@ export class MeResponseDto {
   correo!: string;
   pages!: MePageDto[];
   roles!: string[];
+  signatureUrl: string | null = null;
+  hasSignature!: boolean;
 }

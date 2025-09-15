@@ -37,16 +37,23 @@ export class AWSService {
   async uploadFile(
     fileBuffer: Buffer,
     fileName: string,
-    fileExtension: string = 'pdf',
+    fileExtension: 'png' | 'jpg' | 'jpeg' | 'pdf' = 'pdf',
+    options?: {
+      keyPrefix?: string;
+      contentType?: string;
+      customKey?: string;
+    },
   ) {
-
-    // ? fileName tiene que pertimnar con .pdf
-    const fileKey = `${envs.bucketPrefix}/${fileName}.${fileExtension}`;
-    const uploadParams = {
+    const keyPrefix = options?.keyPrefix ?? envs.bucketPrefix;
+    const fileKey = options?.customKey ?? `${keyPrefix}/${fileName}.${fileExtension}`;
+    const uploadParams: any = {
       Bucket: envs.bucketName,
       Key: fileKey,
       Body: fileBuffer,
     };
+    if (options?.contentType) {
+      uploadParams.ContentType = options.contentType;
+    }
 
     try {
       const s3Response = await this.s3Client.send(
@@ -54,7 +61,7 @@ export class AWSService {
       );
 
       this.logger.log(`S3 response: ${s3Response}`);
-      this.logger.log(`File key: ${envs.bucketPrefix}/${fileName}.pdf`);
+      this.logger.log(`File key: ${fileKey}`);
 
       return {
         fileKey,
@@ -101,7 +108,7 @@ export class AWSService {
       const url = await getSignedUrl(this.s3Client, command, {
         expiresIn: expireTime,
       });
-      
+
       return {
         status: 'success',
         data: url,
@@ -116,6 +123,29 @@ export class AWSService {
     }
   }
 
+  async getPresignedURLByKey(
+    fileKey: string,
+    contentType?: string,
+    expiresIn = 3600,
+  ) {
+    const command = new GetObjectCommand({
+      Bucket: envs.bucketName,
+      Key: fileKey,
+      ...(contentType ? { ResponseContentType: contentType } : {}),
+    });
+
+    try {
+      const url = await getSignedUrl(this.s3Client, command, {
+        expiresIn,
+      });
+      return { status: 'success', data: url };
+    } catch (error) {
+      const errMsg = `Problemas al obtener url del archivo "${fileKey}" al bucket. Error: ${error}`;
+      this.logger.error(errMsg);
+      return { status: 'error', data: errMsg };
+    }
+  }
+
   /**
    * Verifica si un archivo existe en el bucket S3 configurado.
    *
@@ -127,36 +157,41 @@ export class AWSService {
    * @param fileName - Nombre del archivo en S3 (debe de contener extensión (ej: .pdf, .png)).
    * @returns `true` si el archivo existe en el bucket, `false` en caso contrario.
    */
-  async checkFileAvailabilityInBucket(fileName: string) {
+  async checkFileAvailabilityInBucket(fileKey: string) {
     try {
       await this.s3Client.send(
         new HeadObjectCommand({
           Bucket: envs.bucketName,
-          Key: `${envs.bucketPrefix}/${fileName}`,
+          Key: fileKey,
         }),
       );
 
       return true;
     } catch (error) {
       this.logger.error(
-        `No fue posible encontrar el archivo ${fileName} en el bucket.`,
+        `No fue posible encontrar el archivo ${fileKey} en el bucket.`,
       );
       return false;
     }
   }
 
   async getFileBuffer(
-    fileName: string,
+    fileNameOrKey: string,
     fileExtension: string = 'pdf',
   ): Promise<Buffer> {
-    const fileKey = `${envs.bucketPrefix}/${fileName}.${fileExtension}`;
+    const fileKey = fileNameOrKey.includes('/')
+      ? fileNameOrKey
+      : `${envs.bucketPrefix}/${fileNameOrKey}.${fileExtension}`;
+    return this.getFileBufferByKey(fileKey);
+  }
+
+  async getFileBufferByKey(fileKey: string): Promise<Buffer> {
     const command = new GetObjectCommand({
       Bucket: envs.bucketName,
       Key: fileKey,
     });
     const response = await this.s3Client.send(command);
 
-    // response.Body puede ser Readable o Buffer
     if (response.Body instanceof Readable) {
       const chunks: Buffer[] = [];
       for await (const chunk of response.Body) {
@@ -166,7 +201,6 @@ export class AWSService {
     } else if (Buffer.isBuffer(response.Body)) {
       return response.Body;
     } else if (typeof response.Body?.transformToByteArray === 'function') {
-      // Para entornos como Cloudflare Workers
       const byteArray = await response.Body.transformToByteArray();
       return Buffer.from(byteArray);
     } else {

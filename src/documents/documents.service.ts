@@ -118,7 +118,7 @@ export class DocumentsService {
 
   async signDocument(
     firmaCuadroDto: FirmaCuadroDto,
-    signatureBuffer: Buffer,
+    signatureFileBuffer: Buffer,
   ): Promise<any> {
     // TODO: Considerar obtener imagen firma de DB
 
@@ -169,7 +169,7 @@ export class DocumentsService {
 
     const signedPdfBuffer = await this.pdfRepository.insertSignature(
       pdfBuffer!,
-      signatureBuffer,
+      signatureFileBuffer,
       placeholder,
       null as any,
     );

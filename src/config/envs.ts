@@ -17,6 +17,8 @@ const envsSchema = joi
     S3_BUCKET_REGION: joi.string().optional().allow(''),
     S3_BUCKET_NAME: joi.string().optional().allow(''),
     S3_BUCKET_PREFIX: joi.string().optional().allow(''),
+    S3_BUCKET_SIGNATURES_PREFIX: joi.string().optional().allow(''),
+    BUCKET_SIGNATURES_PREFIX: joi.string().optional().allow(''),
     S3_BUCKET_ACCESS_KEY_ID: joi.string().optional().allow(''),
     S3_BUCKET_SECRET_KEY: joi.string().optional().allow(''),
 
@@ -47,6 +49,10 @@ export const envs = {
   bucketRegion: value.S3_BUCKET_REGION as string | undefined,
   bucketName: value.S3_BUCKET_NAME as string | undefined,
   bucketPrefix: (value.S3_BUCKET_PREFIX as string | undefined) ?? '',
+  bucketSignaturesPrefix:
+    (value.S3_BUCKET_SIGNATURES_PREFIX as string | undefined) ??
+    (value.BUCKET_SIGNATURES_PREFIX as string | undefined) ??
+    '',
   bucketAccessKeyID: value.S3_BUCKET_ACCESS_KEY_ID as string | undefined,
   bucketSecretKey: value.S3_BUCKET_SECRET_KEY as string | undefined,
 
