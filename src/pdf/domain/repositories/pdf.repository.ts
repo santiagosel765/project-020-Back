@@ -39,6 +39,8 @@ export type RelativeField = {
   rectWidth?: number;
   rectHeight?: number;
   fontSize?: number;
+  align?: 'left' | 'center';
+  multiline?: boolean;
 };
 
 export interface PdfRepository {
@@ -106,7 +108,9 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
     maxWidth: 110,
     rectWidth: 110,
     rectHeight: CELL.height,
-    fontSize: CELL.textSize,
+    fontSize: 7,
+    align: 'left',
+    multiline: true,
   },
   {
     key: 'PUESTO',
@@ -116,6 +120,7 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
     rectWidth: 110,
     rectHeight: CELL.height,
     fontSize: CELL.textSize,
+    align: 'left',
   },
   {
     key: 'GERENCIA',
@@ -125,6 +130,7 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
     rectWidth: 110,
     rectHeight: CELL.height,
     fontSize: CELL.textSize,
+    align: 'left',
   },
   {
     key: 'FIRMA_BOX',
@@ -141,6 +147,7 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
     rectWidth: 80,
     rectHeight: 22,
     fontSize: 7,
+    align: 'center',
   },
 ];
 

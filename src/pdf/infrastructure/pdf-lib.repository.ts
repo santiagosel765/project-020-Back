@@ -25,6 +25,76 @@ export class PdfLibRepository implements PdfRepository {
   private readonly defaultRectExtraHeight = 8;
   private readonly defaultRectYOffset = 4;
 
+  // Devuelve [primerNombre, primerApellido]
+  private firstNameAndFirstLast(value: string): [string, string] {
+    const p = (value || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = p[0] ?? '';
+    // toma el primer apellido a partir de los que vengan después del primer nombre
+    const lastName = p.slice(1)[0] ?? '';
+    return [firstName, lastName];
+  }
+
+  private drawCenteredText(
+    page: any,
+    font: PDFFont,
+    text: string,
+    x: number, // x del borde izquierdo de la celda
+    y: number, // baseline objetivo (usamos el anchor.y que ya traes)
+    width: number,
+    fontSize: number,
+  ) {
+    const w = font.widthOfTextAtSize(text, fontSize);
+    const startX = x + Math.max(0, (width - w) / 2);
+    page.drawText(text, { x: startX, y, size: fontSize, font, color: rgb(0, 0, 0) });
+  }
+
+  // Dibuja dos líneas (si la segunda está vacía, solo dibuja la primera)
+  private drawTwoLines(
+    page: any,
+    font: PDFFont,
+    line1: string,
+    line2: string,
+    x: number,
+    y: number,
+    width: number,
+    fontSize: number,
+  ) {
+    const gap = 2;
+    // línea de arriba un pelín más alta para que entren dos
+    const yTop = y + Math.max(2, Math.floor(fontSize / 2));
+    const l1 = this.truncateText(font, line1 || '', fontSize, width);
+    if (l1) this.drawTextLeft(page, font, l1, x, yTop, fontSize);
+    const l2 = this.truncateText(font, line2 || '', fontSize, width);
+    if (l2) this.drawTextLeft(page, font, l2, x, yTop - (fontSize + gap), fontSize);
+  }
+
+  private drawTextLeft(
+    page: any,
+    font: PDFFont,
+    text: string,
+    x: number,
+    y: number,
+    fontSize: number,
+  ) {
+    page.drawText(text, { x, y, size: fontSize, font, color: rgb(0, 0, 0) });
+  }
+
+  // Centra y escala una imagen dentro de una caja (sin salirse)
+  private drawImageFitAndCenter(
+    page: any,
+    img: any,
+    box: { x: number; y: number; w: number; h: number },
+  ) {
+    const iw = img.width,
+      ih = img.height;
+    const scale = Math.min(box.w / iw, box.h / ih, 1); // nunca crecer
+    const w = Math.floor(iw * scale);
+    const h = Math.floor(ih * scale);
+    const x = box.x + Math.floor((box.w - w) / 2);
+    const y = box.y + Math.floor((box.h - h) / 2);
+    page.drawImage(img, { x, y, width: w, height: h });
+  }
+
   /**
    * Inserta una sola firma en el PDF en la posición indicada por el placeholder 'FIRMA_DIGITAL'.
    *
@@ -401,23 +471,26 @@ export class PdfLibRepository implements PdfRepository {
     }
 
     const page = pdfDoc.getPage(anchor.page);
+    let firmaBox: { x: number; y: number; w: number; h: number } | null = null;
+
     for (const field of fields ?? []) {
       if (!field) continue;
 
       const targetX = anchor.x + (field.dx ?? 0);
       const targetY = anchor.y + (field.dy ?? 0);
+      const rectWidth = field.rectWidth ?? 0;
+      const rectHeight = field.rectHeight ?? 0;
+      const fontSize = field.fontSize ?? this.defaultFontSize;
 
-      if (field.rectWidth && field.rectHeight) {
-        const rectY =
-          targetY -
-          field.rectHeight +
-          (field.fontSize ?? this.defaultFontSize) +
-          this.defaultRectYOffset;
+      let rectY: number | null = null;
+      if (rectWidth && rectHeight) {
+        rectY =
+          targetY - rectHeight + fontSize + this.defaultRectYOffset;
         page.drawRectangle({
           x: targetX,
           y: rectY,
-          width: field.rectWidth,
-          height: field.rectHeight,
+          width: rectWidth,
+          height: rectHeight,
           color: rgb(1, 1, 1),
           borderColor: rgb(1, 1, 1),
           borderWidth: 0,
@@ -426,64 +499,105 @@ export class PdfLibRepository implements PdfRepository {
       }
 
       if (field.key === 'FIRMA_BOX') {
+        const boxWidth = rectWidth || signature?.width || 0;
+        const boxHeight = rectHeight || signature?.height || 0;
+        const boxY =
+          rectY ??
+          (targetY -
+            boxHeight +
+            fontSize +
+            this.defaultRectYOffset);
+        firmaBox = {
+          x: targetX,
+          y: boxY,
+          w: boxWidth,
+          h: boxHeight,
+        };
         this.logger.log(
-          `[fillRelativeToAnchor] Limpieza de celda de firma en (${targetX.toFixed(
+          `[fillRelativeToAnchor] FIRMA_BOX -> box=(${firmaBox.x.toFixed(
             2,
-          )}, ${targetY.toFixed(2)}) tamaño=${field.rectWidth ?? 0}x${
-            field.rectHeight ?? 0
+          )}, ${firmaBox.y.toFixed(2)}) size=${firmaBox.w.toFixed(2)}x${
+            firmaBox.h.toFixed(2)
           }`,
         );
         continue;
       }
 
       const rawValue = (values[field.key] ?? '').trim();
-      const fontSize = field.fontSize ?? this.defaultFontSize;
-      const value = field.maxWidth
-        ? this.truncateText(font, rawValue, fontSize, field.maxWidth)
-        : rawValue;
+      const cellWidth = rectWidth || field.maxWidth || 0;
+      const textWidth = cellWidth > 0 ? Math.max(cellWidth - 4, 1) : 0;
+      const leftX = targetX + 2;
 
-      if (value) {
-        page.drawText(value, {
-          x: targetX,
-          y: targetY,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
+      if (field.key === 'NOMBRE' && field.multiline) {
+        const [firstName, firstLast] = this.firstNameAndFirstLast(rawValue);
+        if (firstName || firstLast) {
+          this.drawTwoLines(
+            page,
+            font,
+            firstName,
+            firstLast,
+            leftX,
+            targetY,
+            textWidth,
+            fontSize,
+          );
+          modified = true;
+        }
+
+        this.logger.log(
+          `[fillRelativeToAnchor] ${field.key} (multiline) -> coords=(${targetX.toFixed(
+            2,
+          )}, ${targetY.toFixed(2)}) fontSize=${fontSize} width=${cellWidth} ` +
+            `line1="${firstName}" line2="${firstLast}"`,
+        );
+        continue;
+      }
+
+      let text = rawValue;
+      if (cellWidth > 0) {
+        text = this.truncateText(font, rawValue, fontSize, textWidth);
+      }
+
+      if (text) {
+        if (field.align === 'center' && cellWidth > 0) {
+          this.drawCenteredText(page, font, text, targetX, targetY, cellWidth, fontSize);
+        } else {
+          this.drawTextLeft(page, font, text, leftX, targetY, fontSize);
+        }
+        modified = true;
       }
 
       this.logger.log(
         `[fillRelativeToAnchor] ${field.key} -> coords=(${targetX.toFixed(
           2,
-        )}, ${targetY.toFixed(2)}) fontSize=${fontSize} maxWidth=${
-          field.maxWidth ?? 'auto'
-        } rect=${field.rectWidth ?? 0}x${field.rectHeight ?? 0}`,
+        )}, ${targetY.toFixed(2)}) fontSize=${fontSize} width=${cellWidth} align=${
+          field.align ?? 'left'
+        } text="${text}"`,
       );
-
-      modified = true;
     }
 
-    if (signature?.buffer?.length) {
+    if (!firmaBox && signature) {
+      firmaBox = {
+        x: anchor.x + signature.dx,
+        y: anchor.y + signature.dy,
+        w: signature.width,
+        h: signature.height,
+      };
+    }
+
+    if (firmaBox && signature?.buffer?.length) {
       const signatureImage =
         signature.buffer[0] === 0xff && signature.buffer[1] === 0xd8
           ? await pdfDoc.embedJpg(signature.buffer)
           : await pdfDoc.embedPng(signature.buffer);
 
-      const sigX = anchor.x + signature.dx;
-      const sigY = anchor.y + signature.dy;
-
-      page.drawImage(signatureImage, {
-        x: sigX,
-        y: sigY,
-        width: signature.width,
-        height: signature.height,
-      });
+      this.drawImageFitAndCenter(page, signatureImage, firmaBox);
 
       this.logger.log(
-        `[fillRelativeToAnchor] Firma dibujada en (${sigX.toFixed(
+        `[fillRelativeToAnchor] Firma dibujada centrada en (${firmaBox.x.toFixed(
           2,
-        )}, ${sigY.toFixed(2)}) tamaño=${signature.width}x${
-          signature.height
+        )}, ${firmaBox.y.toFixed(2)}) caja=${firmaBox.w.toFixed(2)}x${
+          firmaBox.h.toFixed(2)
         } bufferSize=${signature.buffer.length}`,
       );
 
