@@ -309,23 +309,23 @@ export class DocumentsService {
 
     this.logger.log('[signDocument] modo de llenado: columnas detectadas por encabezados');
 
-    // Limpieza previa de la fila para borrar placeholders y basura visual
+    // 1) Limpieza de la fila: borra placeholders y residuos previos
     const cleaned = await this.pdfRepository.fillRowByColumns(
       pdfBuffer,
       resolved,
       { NOMBRE: '', PUESTO: '', GERENCIA: '', FECHA: '' },
-      { writeDate: false }, // sin firma, sin fecha
+      { writeDate: false }, // sin fecha, sin firma; solo limpieza
     );
 
-    // Ahora escribir valores + firma con centrado y fecha centrada
+    // 2) Escritura definitiva: valores + firma + fecha (centradas)
     const finalRow = await this.pdfRepository.fillRowByColumns(
       cleaned.buffer,
       resolved,
       {
-        NOMBRE: displayName,
-        PUESTO: puesto,
-        GERENCIA: gerencia,
-        FECHA: fechaFirma,
+        NOMBRE: displayName, // “Carlos Ojani Ng Valladares” ya desde DB
+        PUESTO: puesto, // “CEO”
+        GERENCIA: gerencia, // “Dirección”
+        FECHA: fechaFirma, // ej. “16 de septiembre de 2025”
       },
       { signatureBuffer: signatureFileBuffer, writeDate: true },
     );
