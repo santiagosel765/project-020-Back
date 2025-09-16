@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PdfRepository } from '../domain/repositories/pdf.repository';
+import {
+  PdfRepository,
+  RelativeField,
+  TextAnchorFill,
+} from '../domain/repositories/pdf.repository';
 import { SignaturePosition } from '../domain/value-objects/signature-position.vo';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFFont } from 'pdf-lib';
 import { findPlaceholderCoordinates, pdfExtractText } from '../helpers';
 import { Signature } from 'src/documents/dto/sign-document.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
@@ -10,6 +14,11 @@ import { formatCurrentDate } from 'src/helpers/formatDate';
 @Injectable()
 export class PdfLibRepository implements PdfRepository {
   logger = new Logger('PdfLibRepository');
+
+  private readonly defaultFontSize = 8;
+  private readonly defaultRectPadding = 2;
+  private readonly defaultRectExtraHeight = 8;
+  private readonly defaultRectYOffset = 4;
 
   /**
    * Inserta una sola firma en el PDF en la posición indicada por el placeholder 'FIRMA_DIGITAL'.
@@ -133,17 +142,15 @@ export class PdfLibRepository implements PdfRepository {
 
   async fillTextAnchors(
     pdfBuffer: Buffer,
-    replacements: Record<string, string>,
+    items: TextAnchorFill[],
   ): Promise<Buffer> {
     if (!pdfBuffer?.length) {
       return pdfBuffer;
     }
 
-    const entries = Object.entries(replacements ?? {}).filter(
-      ([anchor]) => !!anchor,
-    );
+    const targets = (items ?? []).filter((item) => item?.token?.trim());
 
-    if (!entries.length) {
+    if (!targets.length) {
       return pdfBuffer;
     }
 
@@ -151,27 +158,41 @@ export class PdfLibRepository implements PdfRepository {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     let modified = false;
 
-    for (const [anchor, rawValue] of entries) {
+    for (const item of targets) {
+      const token = item.token.trim();
+
       try {
-        const coords = await findPlaceholderCoordinates(pdfBuffer, anchor);
+        const coords = await findPlaceholderCoordinates(pdfBuffer, token);
         if (!coords) {
           this.logger.warn(
-            `[fillTextAnchors] Placeholder de texto no encontrado: ${anchor}`,
+            `[fillTextAnchors] Placeholder de texto no encontrado: ${token}`,
           );
           continue;
         }
 
         const page = pdfDoc.getPage(coords.page);
-        const fontSize = 7;
-        const value = (rawValue ?? '').trim();
-        const placeholderWidth = font.widthOfTextAtSize(anchor, fontSize);
-        const textWidth = value ? font.widthOfTextAtSize(value, fontSize) : 0;
-        const rectWidth = Math.max(placeholderWidth, textWidth) + 4;
-        const rectHeight = fontSize + 8;
-        const rectY = coords.y - fontSize;
+        const fontSize = item.fontSize ?? this.defaultFontSize;
+        const padding = item.rectPadding ?? this.defaultRectPadding;
+        const rawValue = (item.text ?? '').trim();
+        const value = item.maxWidth
+          ? this.truncateText(font, rawValue, fontSize, item.maxWidth)
+          : rawValue;
+        const placeholderWidth = font.widthOfTextAtSize(token, fontSize);
+        const textWidth = value
+          ? font.widthOfTextAtSize(value, fontSize)
+          : 0;
+        const targetWidth = Math.max(
+          placeholderWidth,
+          item.maxWidth ?? 0,
+          textWidth,
+        );
+        const rectWidth = targetWidth + padding * 2;
+        const rectHeight = fontSize + this.defaultRectExtraHeight;
+        const rectX = coords.x - padding;
+        const rectY = coords.y - fontSize - this.defaultRectYOffset;
 
         page.drawRectangle({
-          x: coords.x,
+          x: rectX,
           y: rectY,
           width: rectWidth,
           height: rectHeight,
@@ -190,10 +211,18 @@ export class PdfLibRepository implements PdfRepository {
           });
         }
 
+        this.logger.log(
+          `[fillTextAnchors] token=${token} coords=(${coords.x.toFixed(
+            2,
+          )}, ${coords.y.toFixed(2)}) fontSize=${fontSize} maxWidth=${
+            item.maxWidth ?? 'auto'
+          } rectWidth=${rectWidth.toFixed(2)}`,
+        );
+
         modified = true;
       } catch (error) {
         this.logger.error(
-          `[fillTextAnchors] Error al reemplazar placeholder "${anchor}": ${error}`,
+          `[fillTextAnchors] Error al reemplazar placeholder "${token}": ${error}`,
         );
       }
     }
@@ -203,5 +232,161 @@ export class PdfLibRepository implements PdfRepository {
     }
 
     return Buffer.from(await pdfDoc.save());
+  }
+
+  async fillRelativeToAnchor(
+    pdfBuffer: Buffer,
+    anchorToken: string,
+    values: Record<'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA', string>,
+    fields: RelativeField[],
+    signature?: { buffer: Buffer; dx: number; dy: number; width: number; height: number },
+  ): Promise<Buffer> {
+    if (!pdfBuffer?.length || !anchorToken) {
+      return pdfBuffer;
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    let modified = false;
+
+    const anchor = await findPlaceholderCoordinates(pdfBuffer, anchorToken);
+    if (!anchor) {
+      this.logger.warn(
+        `[fillRelativeToAnchor] Placeholder ancla no encontrado: ${anchorToken}`,
+      );
+      return pdfBuffer;
+    }
+
+    const page = pdfDoc.getPage(anchor.page);
+    for (const field of fields ?? []) {
+      if (!field) continue;
+
+      const targetX = anchor.x + (field.dx ?? 0);
+      const targetY = anchor.y + (field.dy ?? 0);
+
+      if (field.rectWidth && field.rectHeight) {
+        const rectY =
+          targetY -
+          field.rectHeight +
+          (field.fontSize ?? this.defaultFontSize) +
+          this.defaultRectYOffset;
+        page.drawRectangle({
+          x: targetX,
+          y: rectY,
+          width: field.rectWidth,
+          height: field.rectHeight,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(1, 1, 1),
+          borderWidth: 0,
+        });
+        modified = true;
+      }
+
+      if (field.key === 'FIRMA_BOX') {
+        this.logger.log(
+          `[fillRelativeToAnchor] Limpieza de celda de firma en (${targetX.toFixed(
+            2,
+          )}, ${targetY.toFixed(2)}) tamaño=${field.rectWidth ?? 0}x${
+            field.rectHeight ?? 0
+          }`,
+        );
+        continue;
+      }
+
+      const rawValue = (values[field.key] ?? '').trim();
+      const fontSize = field.fontSize ?? this.defaultFontSize;
+      const value = field.maxWidth
+        ? this.truncateText(font, rawValue, fontSize, field.maxWidth)
+        : rawValue;
+
+      if (value) {
+        page.drawText(value, {
+          x: targetX,
+          y: targetY,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      }
+
+      this.logger.log(
+        `[fillRelativeToAnchor] ${field.key} -> coords=(${targetX.toFixed(
+          2,
+        )}, ${targetY.toFixed(2)}) fontSize=${fontSize} maxWidth=${
+          field.maxWidth ?? 'auto'
+        } rect=${field.rectWidth ?? 0}x${field.rectHeight ?? 0}`,
+      );
+
+      modified = true;
+    }
+
+    if (signature?.buffer?.length) {
+      const signatureImage =
+        signature.buffer[0] === 0xff && signature.buffer[1] === 0xd8
+          ? await pdfDoc.embedJpg(signature.buffer)
+          : await pdfDoc.embedPng(signature.buffer);
+
+      const sigX = anchor.x + signature.dx;
+      const sigY = anchor.y + signature.dy;
+
+      page.drawImage(signatureImage, {
+        x: sigX,
+        y: sigY,
+        width: signature.width,
+        height: signature.height,
+      });
+
+      this.logger.log(
+        `[fillRelativeToAnchor] Firma dibujada en (${sigX.toFixed(
+          2,
+        )}, ${sigY.toFixed(2)}) tamaño=${signature.width}x${
+          signature.height
+        } bufferSize=${signature.buffer.length}`,
+      );
+
+      modified = true;
+    }
+
+    if (!modified) {
+      return pdfBuffer;
+    }
+
+    return Buffer.from(await pdfDoc.save());
+  }
+
+  private truncateText(
+    font: PDFFont,
+    text: string,
+    fontSize: number,
+    maxWidth: number,
+  ): string {
+    const value = text?.trim?.() ?? '';
+    if (!value || !maxWidth) {
+      return value;
+    }
+
+    if (font.widthOfTextAtSize(value, fontSize) <= maxWidth) {
+      return value;
+    }
+
+    const ellipsis = '...';
+    const ellipsisWidth = font.widthOfTextAtSize(ellipsis, fontSize);
+    if (ellipsisWidth >= maxWidth) {
+      return ellipsis;
+    }
+
+    let result = '';
+    for (const char of value) {
+      const next = result + char;
+      if (
+        font.widthOfTextAtSize(next, fontSize) + ellipsisWidth >
+        maxWidth
+      ) {
+        break;
+      }
+      result = next;
+    }
+
+    return result ? `${result}${ellipsis}` : ellipsis;
   }
 }
