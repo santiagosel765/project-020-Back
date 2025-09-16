@@ -12,7 +12,8 @@ import {
 import {
   PDF_REPOSITORY,
   type PdfRepository,
-  type TextAnchorFill,
+  OFFSETS_DEFAULT,
+  SIGNATURE_DEFAULT,
 } from '../pdf/domain/repositories/pdf.repository';
 import fs from 'fs';
 import path from 'path';
@@ -280,11 +281,6 @@ export class DocumentsService {
 
     this.logger.log(`[signDocument] Placeholder resuelto: ${resolved}`);
 
-    const suffix = resolved.replace(/^FECHA_/, '');
-    const nameAnchor = `NOMBRE_${suffix}`;
-    const puestoAnchor = `PUESTO_${suffix}`;
-    const gerenciaAnchor = `GERENCIA_${suffix}`;
-
     const u = await this.prisma.user.findUnique({
       where: { id: +firmaCuadroDto.userId },
       select: {
@@ -299,131 +295,32 @@ export class DocumentsService {
       },
     });
 
-    const fullName = [
-      u?.primer_nombre,
-      u?.segundo_name,
-      u?.tercer_nombre,
-      u?.primer_apellido,
-      u?.segundo_apellido,
-      u?.apellido_casada,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .trim();
+    const firstName = (u?.primer_nombre ?? '').trim();
+    const firstLastName = (u?.primer_apellido ?? '').trim();
+    const displayName = [firstName, firstLastName].filter(Boolean).join(' ').trim();
     const puesto = (u?.posicion?.nombre ?? '').trim();
     const gerencia = (u?.gerencia?.nombre ?? '').trim();
 
     this.logger.log(
-      `[signDocument] anchors texto -> NOMBRE=${nameAnchor}, PUESTO=${puestoAnchor}, GERENCIA=${gerenciaAnchor}`,
+      `[signDocument] valores -> nombreLinea1="${firstName}" nombreLinea2="${firstLastName}" puesto="${puesto}" gerencia="${gerencia}"`,
     );
-    this.logger.log(
-      `[signDocument] valores -> nombre="${fullName}", puesto="${puesto}", gerencia="${gerencia}"`,
-    );
-
-    const pdfText = await this.pdfRepository.extractText(pdfBuffer);
-    const siblingAnchors = [nameAnchor, puestoAnchor, gerenciaAnchor];
-    const foundAnchors = siblingAnchors.filter((anchor) =>
-      pdfText.includes(anchor),
-    );
-    const missingAnchors = siblingAnchors.filter(
-      (anchor) => !pdfText.includes(anchor),
-    );
-
-    this.logger.log(`[signDocument] slug extraído: ${suffix}`);
-    this.logger.log(
-      `[signDocument] tokens encontrados: ${
-        foundAnchors.length ? foundAnchors.join(', ') : '(ninguno)'
-      }`,
-    );
-    if (missingAnchors.length) {
-      this.logger.warn(
-        `[signDocument] tokens faltantes: ${missingAnchors.join(', ')}`,
-      );
-    }
 
     const fechaFirma = formatCurrentDate();
 
-    let signedPdfBuffer: Buffer | null = null;
+    this.logger.log('[signDocument] modo de llenado: offsets relativos');
 
-    if (!missingAnchors.length) {
-      this.logger.log('[signDocument] modo de llenado: anchors');
-      const anchorItems: TextAnchorFill[] = [
-        {
-          token: nameAnchor,
-          text: fullName,
-          maxWidth: 110,
-          fontSize: 8,
-          rectPadding: 2,
-        },
-        {
-          token: puestoAnchor,
-          text: puesto,
-          maxWidth: 110,
-          fontSize: 8,
-          rectPadding: 2,
-        },
-        {
-          token: gerenciaAnchor,
-          text: gerencia,
-          maxWidth: 110,
-          fontSize: 8,
-          rectPadding: 2,
-        },
-        {
-          token: resolved,
-          text: fechaFirma,
-          maxWidth: 90,
-          fontSize: 7,
-          rectPadding: 2,
-        },
-      ];
-      const pdfWithText = await this.pdfRepository.fillTextAnchors(
-        pdfBuffer,
-        anchorItems,
-      );
-
-      signedPdfBuffer = await this.pdfRepository.insertSignature(
-        pdfWithText,
-        signatureFileBuffer,
-        resolved,
-        undefined as any,
-        { writeDate: false },
-      );
-    } else {
-      this.logger.log('[signDocument] modo de llenado: columnas dinámicas');
-      const rowResult = await this.pdfRepository.fillRowByColumns(
-        pdfBuffer,
-        resolved,
-        {
-          NOMBRE: fullName,
-          PUESTO: puesto,
-          GERENCIA: gerencia,
-          FECHA: fechaFirma,
-        },
-        { signatureBuffer: signatureFileBuffer, writeDate: false },
-      );
-
-      if (rowResult.mode === 'fallback') {
-        this.logger.log(
-          '[signDocument] columnas no disponibles, usando offsets relativos',
-        );
-        signedPdfBuffer = rowResult.buffer;
-      } else {
-        const dated = await this.pdfRepository.insertSignature(
-          rowResult.buffer,
-          signatureFileBuffer,
-          resolved,
-          undefined as any,
-          { drawSignature: false, writeDate: true },
-        );
-        if (!dated) {
-          throw new BadRequestException(
-            `No se pudo completar la firma en modo columnas para "${resolved}"`,
-          );
-        }
-        signedPdfBuffer = dated;
-      }
-    }
+    const signedPdfBuffer = await this.pdfRepository.fillRelativeToAnchor(
+      pdfBuffer,
+      resolved,
+      {
+        NOMBRE: displayName,
+        PUESTO: puesto,
+        GERENCIA: gerencia,
+        FECHA: fechaFirma,
+      },
+      OFFSETS_DEFAULT,
+      { buffer: signatureFileBuffer, ...SIGNATURE_DEFAULT },
+    );
 
     if (!signedPdfBuffer?.length) {
       throw new BadRequestException(

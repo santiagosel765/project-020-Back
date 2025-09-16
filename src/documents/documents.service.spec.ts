@@ -29,7 +29,8 @@ import { DocumentsService } from './documents.service';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import {
   type PdfRepository,
-  type TextAnchorFill,
+  OFFSETS_DEFAULT,
+  SIGNATURE_DEFAULT,
 } from '../pdf/domain/repositories/pdf.repository';
 
 const createService = () => {
@@ -115,66 +116,7 @@ describe('DocumentsService.signDocument', () => {
     jest.restoreAllMocks();
   });
 
-  it('usa anchors de texto cuando existen todos los tokens', async () => {
-    const { service, pdfRepository, awsService } = createService();
-    const resolved = 'FECHA_ELABORA_ELABORA_TEST';
-
-    jest
-      .spyOn<any, any>(service as any, 'resolvePlaceholderInPdf')
-      .mockResolvedValue({
-        resolved,
-        primary: resolved,
-        candidates: [resolved],
-      });
-
-    pdfRepository.extractText.mockResolvedValue(
-      [
-        'NOMBRE_ELABORA_ELABORA_TEST',
-        'PUESTO_ELABORA_ELABORA_TEST',
-        'GERENCIA_ELABORA_ELABORA_TEST',
-        resolved,
-      ].join(' '),
-    );
-
-    const textBuffer = Buffer.from('with-text');
-    pdfRepository.fillTextAnchors.mockResolvedValue(textBuffer);
-
-    const signedBuffer = Buffer.from('signed');
-    pdfRepository.insertSignature.mockResolvedValue(signedBuffer);
-
-    const signatureBuffer = Buffer.from('signature-image');
-    const response = await service.signDocument(baseDto, signatureBuffer);
-
-    expect(pdfRepository.fillTextAnchors).toHaveBeenCalledTimes(1);
-    const [, items] = pdfRepository.fillTextAnchors.mock.calls[0];
-    expect((items as TextAnchorFill[])).toHaveLength(4);
-    expect((items as TextAnchorFill[]).map((item) => item.token)).toEqual(
-      expect.arrayContaining([
-        'NOMBRE_ELABORA_ELABORA_TEST',
-        'PUESTO_ELABORA_ELABORA_TEST',
-        'GERENCIA_ELABORA_ELABORA_TEST',
-        resolved,
-      ]),
-    );
-    expect(pdfRepository.fillRelativeToAnchor).not.toHaveBeenCalled();
-    expect(pdfRepository.insertSignature).toHaveBeenCalledWith(
-      textBuffer,
-      signatureBuffer,
-      resolved,
-      undefined,
-      { writeDate: false },
-    );
-    expect(awsService.uploadFile).toHaveBeenCalledWith(
-      signedBuffer,
-      'test.pdf',
-    );
-    expect(response).toEqual({
-      status: expect.any(Number),
-      data: expect.any(String),
-    });
-  });
-
-  it('usa columnas dinámicas cuando faltan tokens', async () => {
+  it('firma el documento usando offsets relativos', async () => {
     const { service, pdfRepository, awsService, pdfBaseBuffer } =
       createService();
     const resolved = 'FECHA_ELABORA_ELABORA_TEST';
@@ -187,41 +129,26 @@ describe('DocumentsService.signDocument', () => {
         candidates: [resolved],
       });
 
-    pdfRepository.extractText.mockResolvedValue(resolved);
-
-    const rowBuffer = Buffer.from('row-columns');
-    pdfRepository.fillRowByColumns.mockResolvedValue({
-      buffer: rowBuffer,
-      mode: 'columns',
-    });
-
-    const signedBuffer = Buffer.from('signed-columns');
-    pdfRepository.insertSignature.mockResolvedValue(signedBuffer);
-
     const signatureBuffer = Buffer.from('signature-image');
+    const signedBuffer = Buffer.from('signed');
+    pdfRepository.fillRelativeToAnchor.mockResolvedValue(signedBuffer);
+
     const response = await service.signDocument(baseDto, signatureBuffer);
 
     expect(pdfRepository.fillTextAnchors).not.toHaveBeenCalled();
-    expect(pdfRepository.fillRowByColumns).toHaveBeenCalledWith(
+    expect(pdfRepository.fillRowByColumns).not.toHaveBeenCalled();
+    expect(pdfRepository.insertSignature).not.toHaveBeenCalled();
+    expect(pdfRepository.fillRelativeToAnchor).toHaveBeenCalledWith(
       pdfBaseBuffer,
       resolved,
-      expect.objectContaining({
-        NOMBRE: expect.stringContaining('Juan'),
+      {
+        NOMBRE: 'Juan Perez',
         PUESTO: 'Analista',
         GERENCIA: 'Tecnología',
         FECHA: expect.any(String),
-      }),
-      expect.objectContaining({
-        signatureBuffer,
-        writeDate: false,
-      }),
-    );
-    expect(pdfRepository.insertSignature).toHaveBeenCalledWith(
-      rowBuffer,
-      signatureBuffer,
-      resolved,
-      undefined,
-      { drawSignature: false, writeDate: true },
+      },
+      OFFSETS_DEFAULT,
+      { buffer: signatureBuffer, ...SIGNATURE_DEFAULT },
     );
     expect(awsService.uploadFile).toHaveBeenCalledWith(
       signedBuffer,
@@ -233,9 +160,8 @@ describe('DocumentsService.signDocument', () => {
     });
   });
 
-  it('recurre al fallback cuando no se detectan columnas', async () => {
-    const { service, pdfRepository, awsService, pdfBaseBuffer } =
-      createService();
+  it('lanza error si fillRelativeToAnchor devuelve vacío', async () => {
+    const { service, pdfRepository } = createService();
     const resolved = 'FECHA_ELABORA_ELABORA_TEST';
 
     jest
@@ -246,40 +172,11 @@ describe('DocumentsService.signDocument', () => {
         candidates: [resolved],
       });
 
-    pdfRepository.extractText.mockResolvedValue(resolved);
+    pdfRepository.fillRelativeToAnchor.mockResolvedValue(Buffer.alloc(0));
 
-    const fallbackBuffer = Buffer.from('fallback');
-    pdfRepository.fillRowByColumns.mockResolvedValue({
-      buffer: fallbackBuffer,
-      mode: 'fallback',
-    });
-
-    const signatureBuffer = Buffer.from('signature-image');
-    const response = await service.signDocument(baseDto, signatureBuffer);
-
-    expect(pdfRepository.fillRowByColumns).toHaveBeenCalledWith(
-      pdfBaseBuffer,
-      resolved,
-      expect.objectContaining({
-        NOMBRE: expect.stringContaining('Juan'),
-        PUESTO: 'Analista',
-        GERENCIA: 'Tecnología',
-        FECHA: expect.any(String),
-      }),
-      expect.objectContaining({
-        signatureBuffer,
-        writeDate: false,
-      }),
-    );
-    expect(pdfRepository.insertSignature).not.toHaveBeenCalled();
-    expect(awsService.uploadFile).toHaveBeenCalledWith(
-      fallbackBuffer,
-      'test.pdf',
-    );
-    expect(response).toEqual({
-      status: expect.any(Number),
-      data: expect.any(String),
-    });
+    await expect(
+      service.signDocument(baseDto, Buffer.from('signature-image')),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('lanza error si no encuentra el placeholder FECHA', async () => {
