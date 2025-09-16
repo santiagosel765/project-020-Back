@@ -10,9 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
-  OFFSETS_DEFAULT,
   PDF_REPOSITORY,
-  SIGNATURE_DEFAULT,
   type PdfRepository,
   type TextAnchorFill,
 } from '../pdf/domain/repositories/pdf.repository';
@@ -389,16 +387,11 @@ export class DocumentsService {
         signatureFileBuffer,
         resolved,
         undefined as any,
+        { writeDate: false },
       );
     } else {
-      this.logger.log('[signDocument] modo de llenado: offsets relativos');
-      this.logger.log(
-        `[signDocument] offsets aplicados: ${JSON.stringify(OFFSETS_DEFAULT)}`,
-      );
-      this.logger.log(
-        `[signDocument] offsets firma: ${JSON.stringify(SIGNATURE_DEFAULT)}`,
-      );
-      signedPdfBuffer = await this.pdfRepository.fillRelativeToAnchor(
+      this.logger.log('[signDocument] modo de llenado: columnas dinámicas');
+      const rowResult = await this.pdfRepository.fillRowByColumns(
         pdfBuffer,
         resolved,
         {
@@ -407,12 +400,29 @@ export class DocumentsService {
           GERENCIA: gerencia,
           FECHA: fechaFirma,
         },
-        OFFSETS_DEFAULT,
-        {
-          buffer: signatureFileBuffer,
-          ...SIGNATURE_DEFAULT,
-        },
+        { signatureBuffer: signatureFileBuffer, writeDate: false },
       );
+
+      if (rowResult.mode === 'fallback') {
+        this.logger.log(
+          '[signDocument] columnas no disponibles, usando offsets relativos',
+        );
+        signedPdfBuffer = rowResult.buffer;
+      } else {
+        const dated = await this.pdfRepository.insertSignature(
+          rowResult.buffer,
+          signatureFileBuffer,
+          resolved,
+          undefined as any,
+          { drawSignature: false, writeDate: true },
+        );
+        if (!dated) {
+          throw new BadRequestException(
+            `No se pudo completar la firma en modo columnas para "${resolved}"`,
+          );
+        }
+        signedPdfBuffer = dated;
+      }
     }
 
     if (!signedPdfBuffer?.length) {
