@@ -9,8 +9,13 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { PDF_REPOSITORY } from '../pdf/domain/repositories/pdf.repository';
-import type { PdfRepository } from '../pdf/domain/repositories/pdf.repository';
+import {
+  OFFSETS_DEFAULT,
+  PDF_REPOSITORY,
+  SIGNATURE_DEFAULT,
+  type PdfRepository,
+  type TextAnchorFill,
+} from '../pdf/domain/repositories/pdf.repository';
 import fs from 'fs';
 import path from 'path';
 import { PDF_GENERATION_REPOSITORY } from 'src/pdf/domain/repositories/pdf-generation.repository';
@@ -250,6 +255,8 @@ export class DocumentsService {
       throw new BadRequestException('El PDF base está vacío');
     }
 
+    this.logger.log(`[signDocument] pdfBuffer size=${pdfBuffer.length}`);
+
     if (!signatureFileBuffer?.length) {
       throw new BadRequestException('El archivo de firma está vacío');
     }
@@ -315,23 +322,98 @@ export class DocumentsService {
       `[signDocument] valores -> nombre="${fullName}", puesto="${puesto}", gerencia="${gerencia}"`,
     );
 
-    const textMap: Record<string, string> = {
-      [nameAnchor]: fullName,
-      [puestoAnchor]: puesto,
-      [gerenciaAnchor]: gerencia,
-    };
-
-    const pdfWithText = await this.pdfRepository.fillTextAnchors(
-      pdfBuffer,
-      textMap,
+    const pdfText = await this.pdfRepository.extractText(pdfBuffer);
+    const siblingAnchors = [nameAnchor, puestoAnchor, gerenciaAnchor];
+    const foundAnchors = siblingAnchors.filter((anchor) =>
+      pdfText.includes(anchor),
+    );
+    const missingAnchors = siblingAnchors.filter(
+      (anchor) => !pdfText.includes(anchor),
     );
 
-    const signedPdfBuffer = await this.pdfRepository.insertSignature(
-      pdfWithText,
-      signatureFileBuffer,
-      resolved,
-      undefined as any,
+    this.logger.log(`[signDocument] slug extraído: ${suffix}`);
+    this.logger.log(
+      `[signDocument] tokens encontrados: ${
+        foundAnchors.length ? foundAnchors.join(', ') : '(ninguno)'
+      }`,
     );
+    if (missingAnchors.length) {
+      this.logger.warn(
+        `[signDocument] tokens faltantes: ${missingAnchors.join(', ')}`,
+      );
+    }
+
+    const fechaFirma = formatCurrentDate();
+
+    let signedPdfBuffer: Buffer | null = null;
+
+    if (!missingAnchors.length) {
+      this.logger.log('[signDocument] modo de llenado: anchors');
+      const anchorItems: TextAnchorFill[] = [
+        {
+          token: nameAnchor,
+          text: fullName,
+          maxWidth: 110,
+          fontSize: 8,
+          rectPadding: 2,
+        },
+        {
+          token: puestoAnchor,
+          text: puesto,
+          maxWidth: 110,
+          fontSize: 8,
+          rectPadding: 2,
+        },
+        {
+          token: gerenciaAnchor,
+          text: gerencia,
+          maxWidth: 110,
+          fontSize: 8,
+          rectPadding: 2,
+        },
+        {
+          token: resolved,
+          text: fechaFirma,
+          maxWidth: 90,
+          fontSize: 7,
+          rectPadding: 2,
+        },
+      ];
+      const pdfWithText = await this.pdfRepository.fillTextAnchors(
+        pdfBuffer,
+        anchorItems,
+      );
+
+      signedPdfBuffer = await this.pdfRepository.insertSignature(
+        pdfWithText,
+        signatureFileBuffer,
+        resolved,
+        undefined as any,
+      );
+    } else {
+      this.logger.log('[signDocument] modo de llenado: offsets relativos');
+      this.logger.log(
+        `[signDocument] offsets aplicados: ${JSON.stringify(OFFSETS_DEFAULT)}`,
+      );
+      this.logger.log(
+        `[signDocument] offsets firma: ${JSON.stringify(SIGNATURE_DEFAULT)}`,
+      );
+      signedPdfBuffer = await this.pdfRepository.fillRelativeToAnchor(
+        pdfBuffer,
+        resolved,
+        {
+          NOMBRE: fullName,
+          PUESTO: puesto,
+          GERENCIA: gerencia,
+          FECHA: fechaFirma,
+        },
+        OFFSETS_DEFAULT,
+        {
+          buffer: signatureFileBuffer,
+          ...SIGNATURE_DEFAULT,
+        },
+      );
+    }
 
     if (!signedPdfBuffer?.length) {
       throw new BadRequestException(

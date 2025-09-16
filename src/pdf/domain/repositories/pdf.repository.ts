@@ -3,6 +3,24 @@ import { SignaturePosition } from '../value-objects/signature-position.vo';
 
 export const PDF_REPOSITORY = Symbol('PDF_REPOSITORY');
 
+export interface TextAnchorFill {
+  token: string;
+  text: string;
+  fontSize?: number;
+  maxWidth?: number;
+  rectPadding?: number;
+}
+
+export type RelativeField = {
+  key: 'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA' | 'FIRMA_BOX';
+  dx: number;
+  dy: number;
+  maxWidth?: number;
+  rectWidth?: number;
+  rectHeight?: number;
+  fontSize?: number;
+};
+
 export interface PdfRepository {
   /**
    * Inserta una imagen de firma en un PDF en la posición indicada.
@@ -27,6 +45,75 @@ export interface PdfRepository {
 
   fillTextAnchors(
     pdfBuffer: Buffer,
-    replacements: Record<string, string>,
+    items: TextAnchorFill[],
+  ): Promise<Buffer>;
+
+  fillRelativeToAnchor(
+    pdfBuffer: Buffer,
+    anchorToken: string,
+    values: Record<'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA', string>,
+    fields: RelativeField[],
+    signature?: {
+      buffer: Buffer;
+      dx: number;
+      dy: number;
+      width: number;
+      height: number;
+    },
   ): Promise<Buffer>;
 }
+
+export const CELL = { height: 22, textSize: 8 } as const;
+
+export const OFFSETS_DEFAULT: RelativeField[] = [
+  {
+    key: 'NOMBRE',
+    dx: -470,
+    dy: 0,
+    maxWidth: 110,
+    rectWidth: 110,
+    rectHeight: CELL.height,
+    fontSize: CELL.textSize,
+  },
+  {
+    key: 'PUESTO',
+    dx: -360,
+    dy: 0,
+    maxWidth: 110,
+    rectWidth: 110,
+    rectHeight: CELL.height,
+    fontSize: CELL.textSize,
+  },
+  {
+    key: 'GERENCIA',
+    dx: -250,
+    dy: 0,
+    maxWidth: 110,
+    rectWidth: 110,
+    rectHeight: CELL.height,
+    fontSize: CELL.textSize,
+  },
+  {
+    key: 'FIRMA_BOX',
+    dx: -120,
+    dy: -25,
+    rectWidth: 150,
+    rectHeight: 50,
+  },
+  {
+    key: 'FECHA',
+    dx: 0,
+    dy: 0,
+    maxWidth: 90,
+    rectWidth: 80,
+    rectHeight: 22,
+    fontSize: 7,
+  },
+];
+
+export const SIGNATURE_DEFAULT = {
+  dx: -120,
+  dy: -25,
+  width: 100,
+  height: 40,
+} as const;
