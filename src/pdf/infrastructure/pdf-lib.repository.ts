@@ -8,6 +8,7 @@ import {
   SIGNATURE_DEFAULT,
   SignatureTableColumns,
   TextAnchorFill,
+  CELL,
 } from '../domain/repositories/pdf.repository';
 import { SignaturePosition } from '../domain/value-objects/signature-position.vo';
 import { PDFDocument, StandardFonts, rgb, PDFFont } from 'pdf-lib';
@@ -675,29 +676,26 @@ export class PdfLibRepository implements PdfRepository {
 
     const padding = this.defaultRectPadding;
     const baselineY = anchor.y;
+    const rowHeight = CELL.height;            // 22 px
+    const rowFontSize = this.defaultFontSize; // 8
+    const rowRectY = baselineY - rowFontSize - this.defaultRectYOffset;
 
     for (const key of columnOrder) {
       const col = columns[key];
       if (!col) continue;
 
-      if (key === 'firma') {
-        continue;
+      // Limpia celda (excepto 'firma', que se limpia más abajo)
+      if (key !== 'firma') {
+        page.drawRectangle({
+          x: col.x,
+          y: rowRectY,
+          width: col.w,
+          height: rowHeight,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(1, 1, 1),
+          borderWidth: 0,
+        });
       }
-
-      const fontSize = key === 'fecha' ? 7 : this.defaultFontSize;
-      const rectHeight = fontSize + this.defaultRectExtraHeight;
-      const rectX = col.x;
-      const rectY = baselineY - fontSize - this.defaultRectYOffset;
-
-      page.drawRectangle({
-        x: rectX,
-        y: rectY,
-        width: col.w,
-        height: rectHeight,
-        color: rgb(1, 1, 1),
-        borderColor: rgb(1, 1, 1),
-        borderWidth: 0,
-      });
 
       if (key === 'fecha' && options?.writeDate === false) {
         continue;
@@ -705,25 +703,45 @@ export class PdfLibRepository implements PdfRepository {
 
       const valueKey = valueMap[key];
       if (!valueKey) continue;
+
       const rawValue = (values[valueKey] ?? '').trim();
-      if (!rawValue) continue;
-
       const maxWidth = Math.max(col.w - padding * 2, 0);
-      const value = this.truncateText(font, rawValue, fontSize, maxWidth);
-      if (!value) continue;
 
-      page.drawText(value, {
-        x: col.x + padding,
-        y: baselineY,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-      });
+      if (key === 'nombre') {
+        const [line1, line2] = this.firstNameAndFirstLast(rawValue);
+        this.drawTwoLines(
+          page,
+          font,
+          this.truncateText(font, line1, 7, maxWidth),
+          this.truncateText(font, line2, 7, maxWidth),
+          col.x + padding,
+          baselineY,
+          maxWidth,
+          7,
+        );
+        continue;
+      }
+
+      if (key === 'fecha') {
+        const value = this.truncateText(font, rawValue, 7, maxWidth);
+        if (value) this.drawCenteredText(page, font, value, col.x, baselineY, col.w, 7);
+        continue;
+      }
+
+      const value = this.truncateText(font, rawValue, rowFontSize, maxWidth);
+      if (value) this.drawTextLeft(page, font, value, col.x + padding, baselineY, rowFontSize);
     }
 
-    let appliedScale = 1;
-    let signatureWidth = SIGNATURE_DEFAULT.width;
-    let signatureHeight = SIGNATURE_DEFAULT.height;
+    // Firma: limpia celda completa y encaja imagen dentro de la caja de la fila
+    page.drawRectangle({
+      x: columns.firma.x,
+      y: rowRectY,
+      width: columns.firma.w,
+      height: rowHeight,
+      color: rgb(1, 1, 1),
+      borderColor: rgb(1, 1, 1),
+      borderWidth: 0,
+    });
 
     if (options?.signatureBuffer?.length) {
       const signatureImage =
@@ -731,37 +749,15 @@ export class PdfLibRepository implements PdfRepository {
           ? await pdfDoc.embedJpg(options.signatureBuffer)
           : await pdfDoc.embedPng(options.signatureBuffer);
 
-      const availableWidth = Math.max(columns.firma.w - 6, 1);
-      const rawWidth = signatureImage.width;
-      const rawHeight = signatureImage.height;
-      appliedScale = rawWidth > 0 ? Math.min(1, availableWidth / rawWidth) : 1;
-      signatureWidth = rawWidth * appliedScale;
-      signatureHeight = rawHeight * appliedScale;
-
-      const sigX = columns.firma.x + (columns.firma.w - signatureWidth) / 2;
-      const sigY = baselineY - 25;
-      const cleanupHeight = Math.max(signatureHeight + 12, 50);
-      const cleanupY = sigY - 6;
-
-      page.drawRectangle({
-        x: columns.firma.x,
-        y: cleanupY,
-        width: columns.firma.w,
-        height: cleanupHeight,
-        color: rgb(1, 1, 1),
-        borderColor: rgb(1, 1, 1),
-        borderWidth: 0,
-      });
-
-      page.drawImage(signatureImage, {
-        x: sigX,
-        y: sigY,
-        width: signatureWidth,
-        height: signatureHeight,
+      this.drawImageFitAndCenter(page, signatureImage, {
+        x: columns.firma.x + padding,
+        y: rowRectY + padding,
+        w: Math.max(columns.firma.w - padding * 2, 1),
+        h: Math.max(rowHeight - padding * 2, 1),
       });
 
       this.logger.log(
-        `[fillRowByColumns] firma ${signatureWidth.toFixed(2)}x${signatureHeight.toFixed(2)} escala=${appliedScale.toFixed(3)} columna=${columns.firma.x.toFixed(2)} ancho=${columns.firma.w.toFixed(2)}`,
+        `[fillRowByColumns] firma centrada dentro de la celda (x=${columns.firma.x.toFixed(2)}, y=${rowRectY.toFixed(2)}) w=${columns.firma.w.toFixed(2)} h=${rowHeight.toFixed(2)}`,
       );
     }
 

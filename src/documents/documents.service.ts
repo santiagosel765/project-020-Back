@@ -307,9 +307,9 @@ export class DocumentsService {
 
     const fechaFirma = formatCurrentDate();
 
-    this.logger.log('[signDocument] modo de llenado: offsets relativos');
+    this.logger.log('[signDocument] modo de llenado: columnas detectadas por encabezados');
 
-    const signedPdfBuffer = await this.pdfRepository.fillRelativeToAnchor(
+    const { buffer: signedPdfBuffer } = await this.pdfRepository.fillRowByColumns(
       pdfBuffer,
       resolved,
       {
@@ -318,8 +318,7 @@ export class DocumentsService {
         GERENCIA: gerencia,
         FECHA: fechaFirma,
       },
-      OFFSETS_DEFAULT,
-      { buffer: signatureFileBuffer, ...SIGNATURE_DEFAULT },
+      { signatureBuffer: signatureFileBuffer, writeDate: true },
     );
 
     if (!signedPdfBuffer?.length) {
