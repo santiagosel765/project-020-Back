@@ -350,13 +350,25 @@ export class PdfLibRepository implements PdfRepository {
 
     const resolved = columns as SignatureTableColumns;
 
+    const leftAligned: SignatureTableColumns = {
+      nombre: { x: resolved.nombre.x - resolved.nombre.w / 2, w: resolved.nombre.w },
+      puesto: { x: resolved.puesto.x - resolved.puesto.w / 2, w: resolved.puesto.w },
+      gerencia: {
+        x: resolved.gerencia.x - resolved.gerencia.w / 2,
+        w: resolved.gerencia.w,
+      },
+      firma: { x: resolved.firma.x - resolved.firma.w / 2, w: resolved.firma.w },
+      fecha: { x: resolved.fecha.x - resolved.fecha.w / 2, w: resolved.fecha.w },
+    };
+
     this.logger.log(
-      `[locateSignatureTableColumns] página ${page + 1} -> ${Object.entries(resolved)
-        .map(([key, value]) => `${key}=(x:${value.x.toFixed(2)},w:${value.w.toFixed(2)})`)
-        .join(', ')}`,
+      `[locateSignatureTableColumns] (left) página ${page + 1} -> ` +
+        Object.entries(leftAligned)
+          .map(([k, v]) => `${k}=(x:${v.x.toFixed(2)},w:${v.w.toFixed(2)})`)
+          .join(', '),
     );
 
-    return resolved;
+    return leftAligned;
   }
 
   async fillTextAnchors(
@@ -667,7 +679,7 @@ export class PdfLibRepository implements PdfRepository {
 
     const baselineY = anchor.y;
     const padding = this.defaultRectPadding;
-    const rowHeight = CELL.height + 8; // altura un poco mayor para limpiar bien
+    const rowHeight = CELL.height + 10; // altura un poco mayor para limpiar bien
 
     const columnOrder: Array<keyof SignatureTableColumns> = [
       'nombre',
@@ -696,7 +708,7 @@ export class PdfLibRepository implements PdfRepository {
       x: x0,
       y: baselineY - rowHeight,
       width: totalWidth,
-      height: rowHeight + 6, // un poco extra
+      height: rowHeight + 8, // un poco extra
       color: rgb(1, 1, 1),
       borderColor: rgb(1, 1, 1),
       borderWidth: 0,

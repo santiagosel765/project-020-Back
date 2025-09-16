@@ -1,48 +1,37 @@
-import { FirmanteUserDto } from '../dto/create-cuadro-firma.dto';
-
-function htmlEscape(s: string): string {
-  // Evita inyectar HTML en nombres/puestos/gerencias
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+export function slugNombre(v: string) {
+  return (v || '').trim().replace(/\s+/g, '_'); // igual a la generación actual
 }
 
+type Item = {
+  userId: number;
+  nombre: string;
+  puesto?: string;
+  gerencia?: string;
+};
+
 export function generarFilasFirmas(
-  firmantes: FirmanteUserDto[] | undefined,
-  tipo: 'APRUEBA' | 'REVISA',
-  labelPrimeraFila: string,
+  items: Item[] | Item | undefined,
+  rol: 'REVISA' | 'APRUEBA',
+  etiquetaIzquierda: string // 'Revisado por:' | 'Aprobado por:'
 ): string {
-  const filas =
-    Array.isArray(firmantes) && firmantes.length > 0 ? firmantes : [undefined];
+  const arr = Array.isArray(items) ? items : items ? [items] : [];
 
-  return filas
-    .map((f, index) => {
-      const rowLabel = index === 0 ? labelPrimeraFila : '';
-      const nombre = (f?.nombre ?? '').trim();
-      const puesto = f?.puesto ?? '';
-      const gerencia = f?.gerencia ?? '';
+  return arr.map((it) => {
+    const nombre = it?.nombre || '';
+    const puesto = it?.puesto || '';
+    const gerencia = it?.gerencia || '';
 
-      const slug = nombre ? nombre.replace(/\s+/g, '_') : tipo;
+    // ✅ Solo la FECHA queda como placeholder (ancla para firmar)
+    const fechaToken = `FECHA_${rol}_${slugNombre(nombre || rol)}`;
 
-      const cellNombre = nombre ? htmlEscape(nombre) : `NOMBRE_${tipo}_${slug}`;
-      const cellPuesto = puesto ? htmlEscape(puesto) : `PUESTO_${tipo}_${slug}`;
-      const cellGerencia = gerencia
-        ? htmlEscape(gerencia)
-        : `GERENCIA_${tipo}_${slug}`;
-      const cellFecha = `FECHA_${tipo}_${slug}`;
-
-      return `
-<tr class="tr-firmas">
-  <td class="row-label">${htmlEscape(rowLabel)}</td>
-  <td>${cellNombre}</td>
-  <td>${cellPuesto}</td>
-  <td>${cellGerencia}</td>
-  <td class="td-firma"></td>
-  <td>${cellFecha}</td>
-</tr>`.trim();
-    })
-    .join('');
+    return `
+<tr>
+  <td style="width:92px;padding:6px 4px;"><b>${etiquetaIzquierda}</b></td>
+  <td style="padding:6px 4px;">${nombre}</td>
+  <td style="padding:6px 4px;">${puesto}</td>
+  <td style="padding:6px 4px;">${gerencia}</td>
+  <td style="padding:6px 4px;"></td>
+  <td style="padding:6px 4px;">${fechaToken}</td>
+</tr>`;
+  }).join('');
 }
