@@ -309,8 +309,17 @@ export class DocumentsService {
 
     this.logger.log('[signDocument] modo de llenado: columnas detectadas por encabezados');
 
-    const { buffer: signedPdfBuffer } = await this.pdfRepository.fillRowByColumns(
+    // Limpieza previa de la fila para borrar placeholders y basura visual
+    const cleaned = await this.pdfRepository.fillRowByColumns(
       pdfBuffer,
+      resolved,
+      { NOMBRE: '', PUESTO: '', GERENCIA: '', FECHA: '' },
+      { writeDate: false }, // sin firma, sin fecha
+    );
+
+    // Ahora escribir valores + firma con centrado y fecha centrada
+    const finalRow = await this.pdfRepository.fillRowByColumns(
+      cleaned.buffer,
       resolved,
       {
         NOMBRE: displayName,
@@ -320,6 +329,8 @@ export class DocumentsService {
       },
       { signatureBuffer: signatureFileBuffer, writeDate: true },
     );
+
+    const signedPdfBuffer = finalRow.buffer;
 
     if (!signedPdfBuffer?.length) {
       throw new BadRequestException(

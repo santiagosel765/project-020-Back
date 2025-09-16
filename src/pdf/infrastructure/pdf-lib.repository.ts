@@ -39,14 +39,15 @@ export class PdfLibRepository implements PdfRepository {
     page: any,
     font: PDFFont,
     text: string,
-    x: number, // x del borde izquierdo de la celda
-    y: number, // baseline objetivo (usamos el anchor.y que ya traes)
-    width: number,
+    x: number, // borde izquierdo de la celda
+    y: number, // baseline
+    width: number, // ancho de la celda
     fontSize: number,
   ) {
     const w = font.widthOfTextAtSize(text, fontSize);
-    const startX = x + Math.max(0, (width - w) / 2);
-    page.drawText(text, { x: startX, y, size: fontSize, font, color: rgb(0, 0, 0) });
+    const startX = x + (width - w) / 2;
+    const boundedX = Math.max(x, Math.min(startX, x + Math.max(0, width - w)));
+    page.drawText(text, { x: boundedX, y, size: fontSize, font, color: rgb(0, 0, 0) });
   }
 
   // Dibuja dos líneas (si la segunda está vacía, solo dibuja la primera)
@@ -654,13 +655,19 @@ export class PdfLibRepository implements PdfRepository {
       return { buffer: fallback, mode: 'fallback' };
     }
 
+    this.logger.log(
+      `[fillRowByColumns] anchor=(${anchor.x.toFixed(2)}, ${anchor.y.toFixed(2)})`,
+    );
+
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const page = pdfDoc.getPage(anchor.page);
 
-    const rowHeight = CELL.height;      // 22
-    const padding = this.defaultRectPadding;
+    this.logger.log(`[fillRowByColumns] cols=` + JSON.stringify(columns));
+
     const baselineY = anchor.y;
+    const padding = this.defaultRectPadding;
+    const rowHeight = CELL.height + 8; // altura un poco mayor para limpiar bien
 
     const columnOrder: Array<keyof SignatureTableColumns> = [
       'nombre',
@@ -678,38 +685,41 @@ export class PdfLibRepository implements PdfRepository {
       fecha: 'FECHA',
     } as const;
 
-    // 1) Limpiar y pintar valores
+    // --- Limpieza de toda la fila (borra placeholders que quedan detrás)
+    const xs = Object.values(columns).map((c) => c.x);
+    const rights = Object.values(columns).map((c) => c.x + c.w);
+    const x0 = Math.min(...xs);
+    const x1 = Math.max(...rights);
+    const totalWidth = x1 - x0;
+
+    page.drawRectangle({
+      x: x0,
+      y: baselineY - rowHeight,
+      width: totalWidth,
+      height: rowHeight + 6, // un poco extra
+      color: rgb(1, 1, 1),
+      borderColor: rgb(1, 1, 1),
+      borderWidth: 0,
+    });
+
+    // --- Pintar valores por columna (nombre en dos líneas, fecha centrada)
     for (const key of columnOrder) {
       const col = columns[key];
-      if (!col) continue;
-      if (key === 'firma') continue; // la firma se maneja después
+      if (!col || key === 'firma') continue;
 
       const fontSize = key === 'fecha' ? 7 : this.defaultFontSize;
-
-      // Limpieza completa de celda para borrar placeholders
-      const rectX = col.x;
-      const rectY = baselineY - rowHeight + fontSize;
-      page.drawRectangle({
-        x: rectX,
-        y: rectY,
-        width: col.w,
-        height: rowHeight,
-        color: rgb(1, 1, 1),
-        borderColor: rgb(1, 1, 1),
-        borderWidth: 0,
-      });
-
       if (key === 'fecha' && options?.writeDate === false) continue;
 
-      const valueKey = valueMap[key];
-      if (!valueKey) continue;
-      const rawValue = (values[valueKey] ?? '').trim();
-      if (!rawValue) continue;
+      const vk = valueMap[key];
+      if (!vk) continue;
 
-      const maxWidth = Math.max(col.w - padding * 2, 0);
+      const raw = (values[vk] ?? '').trim();
+      if (!raw) continue;
+
+      const maxW = Math.max(col.w - padding * 2, 0);
 
       if (key === 'nombre') {
-        const [firstName, firstLast] = this.firstNameAndFirstLast(rawValue);
+        const [firstName, firstLast] = this.firstNameAndFirstLast(raw);
         this.drawTwoLines(
           page,
           font,
@@ -717,19 +727,18 @@ export class PdfLibRepository implements PdfRepository {
           firstLast,
           col.x + padding,
           baselineY,
-          maxWidth,
+          maxW,
           fontSize,
         );
         continue;
       }
 
-      const value = this.truncateText(font, rawValue, fontSize, maxWidth);
+      const text = this.truncateText(font, raw, fontSize, maxW);
 
       if (key === 'fecha') {
-        // 2) Fecha centrada en su columna
-        this.drawCenteredText(page, font, value, col.x, baselineY, col.w, fontSize);
+        this.drawCenteredText(page, font, text, col.x, baselineY, col.w, fontSize);
       } else {
-        page.drawText(value, {
+        page.drawText(text, {
           x: col.x + padding,
           y: baselineY,
           size: fontSize,
@@ -739,44 +748,35 @@ export class PdfLibRepository implements PdfRepository {
       }
     }
 
-    // 3) Firma: centrar y limpiar sin afectar fecha
+    // --- Firma: escalar y centrar en X e Y dentro de su celda
     if (options?.signatureBuffer?.length) {
-      const signatureImage =
+      const img =
         options.signatureBuffer[0] === 0xff && options.signatureBuffer[1] === 0xd8
           ? await pdfDoc.embedJpg(options.signatureBuffer)
           : await pdfDoc.embedPng(options.signatureBuffer);
 
-      const availableWidth = Math.max(columns.firma.w - 6, 1);
-      const rawWidth = signatureImage.width;
-      const rawHeight = signatureImage.height;
-      const scale = rawWidth > 0 ? Math.min(1, availableWidth / rawWidth) : 1;
-      const sigW = rawWidth * scale;
-      const sigH = rawHeight * scale;
+      const availW = Math.max(columns.firma.w - 12, 1);
+      const availH = rowHeight - 4;
 
-      const cleanupY = baselineY - 32;                   // limpia más alto
-      const cleanupH = Math.max(sigH + 16, 56);          // altura suficiente
-      page.drawRectangle({
-        x: columns.firma.x,
-        y: cleanupY,
-        width: columns.firma.w,
-        height: cleanupH,
-        color: rgb(1, 1, 1),
-        borderColor: rgb(1, 1, 1),
-        borderWidth: 0,
-      });
+      const wScale = availW / img.width;
+      const hScale = availH / img.height;
+      const scale = Math.min(wScale, hScale, 1);
+
+      const sigW = img.width * scale;
+      const sigH = img.height * scale;
 
       const sigX = columns.firma.x + (columns.firma.w - sigW) / 2;
-      const sigY = cleanupY + (cleanupH - sigH) / 2;     // centrado vertical
-      page.drawImage(signatureImage, { x: sigX, y: sigY, width: sigW, height: sigH });
+      const sigY = baselineY - rowHeight + (rowHeight - sigH) / 2 + 2;
+
+      page.drawImage(img, { x: sigX, y: sigY, width: sigW, height: sigH });
 
       this.logger.log(
-        `[fillRowByColumns] firma ${sigW.toFixed(2)}x${sigH.toFixed(2)} scale=${scale.toFixed(3)} ` +
-        `colX=${columns.firma.x.toFixed(2)} colW=${columns.firma.w.toFixed(2)}`
+        `[fillRowByColumns] firma centrada ${sigW.toFixed(2)}x${sigH.toFixed(2)} en (${sigX.toFixed(2)}, ${sigY.toFixed(2)})`,
       );
     }
 
     const buffer = Buffer.from(await pdfDoc.save());
-    this.logger.log('[fillRowByColumns] modo columnas aplicado');
+    this.logger.log('[fillRowByColumns] columnas aplicadas con limpieza de fila');
     return { buffer, mode: 'columns' };
   }
 
