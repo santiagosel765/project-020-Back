@@ -27,11 +27,11 @@ export class PdfLibRepository implements PdfRepository {
 
   // Devuelve [primerNombre, primerApellido]
   private firstNameAndFirstLast(value: string): [string, string] {
-    const p = (value || '').trim().split(/\s+/).filter(Boolean);
-    const firstName = p[0] ?? '';
-    // toma el primer apellido a partir de los que vengan después del primer nombre
-    const lastName = p.slice(1)[0] ?? '';
-    return [firstName, lastName];
+    const [firstName = '', firstLast = ''] = (value || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    return [firstName, firstLast];
   }
 
   private drawCenteredText(
@@ -60,12 +60,16 @@ export class PdfLibRepository implements PdfRepository {
     fontSize: number,
   ) {
     const gap = 2;
-    // línea de arriba un pelín más alta para que entren dos
-    const yTop = y + Math.max(2, Math.floor(fontSize / 2));
+    const line1Y = y + fontSize + gap;
+    const line2Y = y;
     const l1 = this.truncateText(font, line1 || '', fontSize, width);
-    if (l1) this.drawTextLeft(page, font, l1, x, yTop, fontSize);
+    if (l1) {
+      this.drawTextLeft(page, font, l1, x, line1Y, fontSize);
+    }
     const l2 = this.truncateText(font, line2 || '', fontSize, width);
-    if (l2) this.drawTextLeft(page, font, l2, x, yTop - (fontSize + gap), fontSize);
+    if (l2) {
+      this.drawTextLeft(page, font, l2, x, line2Y, fontSize);
+    }
   }
 
   private drawTextLeft(
@@ -88,10 +92,10 @@ export class PdfLibRepository implements PdfRepository {
     const iw = img.width,
       ih = img.height;
     const scale = Math.min(box.w / iw, box.h / ih, 1); // nunca crecer
-    const w = Math.floor(iw * scale);
-    const h = Math.floor(ih * scale);
-    const x = box.x + Math.floor((box.w - w) / 2);
-    const y = box.y + Math.floor((box.h - h) / 2);
+    const w = iw * scale;
+    const h = ih * scale;
+    const x = box.x + (box.w - w) / 2;
+    const y = box.y + (box.h - h) / 2;
     page.drawImage(img, { x, y, width: w, height: h });
   }
 
@@ -484,8 +488,7 @@ export class PdfLibRepository implements PdfRepository {
 
       let rectY: number | null = null;
       if (rectWidth && rectHeight) {
-        rectY =
-          targetY - rectHeight + fontSize + this.defaultRectYOffset;
+        rectY = targetY - rectHeight + fontSize;
         page.drawRectangle({
           x: targetX,
           y: rectY,
@@ -503,10 +506,7 @@ export class PdfLibRepository implements PdfRepository {
         const boxHeight = rectHeight || signature?.height || 0;
         const boxY =
           rectY ??
-          (targetY -
-            boxHeight +
-            fontSize +
-            this.defaultRectYOffset);
+          (targetY - boxHeight + fontSize);
         firmaBox = {
           x: targetX,
           y: boxY,
