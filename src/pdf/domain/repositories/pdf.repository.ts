@@ -135,9 +135,9 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
   {
     key: 'FIRMA_BOX',
     dx: -120,
-    dy: -25,
+    dy: 0,
     rectWidth: 150,
-    rectHeight: 50,
+    rectHeight: CELL.height, // 22 px: no invade otra fila
   },
   {
     key: 'FECHA',
@@ -153,7 +153,7 @@ export const OFFSETS_DEFAULT: RelativeField[] = [
 
 export const SIGNATURE_DEFAULT = {
   dx: -120,
-  dy: -25,
-  width: 100,
-  height: 40,
+  dy: 0,
+  width: 90,
+  height: 18,
 } as const;
