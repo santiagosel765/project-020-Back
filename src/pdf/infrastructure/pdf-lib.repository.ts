@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  FillRowByColumnsOptions,
+  FillRowByColumnsResult,
+  OFFSETS_DEFAULT,
   PdfRepository,
   RelativeField,
+  SIGNATURE_DEFAULT,
+  SignatureTableColumns,
   TextAnchorFill,
 } from '../domain/repositories/pdf.repository';
 import { SignaturePosition } from '../domain/value-objects/signature-position.vo';
@@ -36,6 +41,7 @@ export class PdfLibRepository implements PdfRepository {
     signatureBuffer: Buffer,
     placeholder: string,
     position: SignaturePosition,
+    options?: { writeDate?: boolean; drawSignature?: boolean },
   ): Promise<Buffer | null> {
     const pdfDoc = await PDFDocument.load(pdfBuffer);
 
@@ -45,43 +51,121 @@ export class PdfLibRepository implements PdfRepository {
       return null;
     }
 
-    const signatureImage =
-      signatureBuffer[0] === 0xff && signatureBuffer[1] === 0xd8
-        ? await pdfDoc.embedJpg(signatureBuffer)
-        : await pdfDoc.embedPng(signatureBuffer);
     const page = pdfDoc.getPage(res.page);
 
-    const coordsX = res.x - 120;
-    const coordsY = res.y - 25;
-    if (res) {
-      this.logger.log(`Coordenadas para la firma: (${coordsX}, ${coordsY})`);
-      page.drawImage(signatureImage, {
-        x: coordsX,
-        y: coordsY,
-        width: 100,
-        height: 40,
+    const signatureShouldDraw = options?.drawSignature !== false;
+
+    const columns = await this.locateSignatureTableColumns(pdfBuffer, res.page);
+
+    let mode: 'columns' | 'fallback' = 'fallback';
+    if (columns) {
+      mode = 'columns';
+      this.logger.log(
+        `[insertSignature] columnas detectadas: ${Object.entries(columns)
+          .map(([key, value]) => `${key}=(x:${value.x.toFixed(2)},w:${value.w.toFixed(2)})`)
+          .join(', ')}`,
+      );
+    }
+
+    let signatureImage: any = null;
+    if (signatureShouldDraw && signatureBuffer?.length) {
+      signatureImage =
+        signatureBuffer[0] === 0xff && signatureBuffer[1] === 0xd8
+          ? await pdfDoc.embedJpg(signatureBuffer)
+          : await pdfDoc.embedPng(signatureBuffer);
+    }
+
+    let signatureWidth = SIGNATURE_DEFAULT.width;
+    let signatureHeight = SIGNATURE_DEFAULT.height;
+    let signatureX = res.x - 120;
+    let signatureY = res.y - 25;
+    let appliedScale = 1;
+
+    if (columns && signatureImage) {
+      const availableWidth = Math.max(columns.firma.w - 6, 1);
+      const rawWidth = signatureImage.width;
+      const rawHeight = signatureImage.height;
+      appliedScale = rawWidth > 0 ? Math.min(1, availableWidth / rawWidth) : 1;
+      signatureWidth = rawWidth * appliedScale;
+      signatureHeight = rawHeight * appliedScale;
+      signatureX = columns.firma.x + (columns.firma.w - signatureWidth) / 2;
+      signatureY = res.y - 25;
+
+      const cleanupHeight = Math.max(signatureHeight + 12, 50);
+      const cleanupY = signatureY - 6;
+      page.drawRectangle({
+        x: columns.firma.x,
+        y: cleanupY,
+        width: columns.firma.w,
+        height: cleanupHeight,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
       });
+    }
+
+    if (signatureImage && signatureShouldDraw) {
+      this.logger.log(
+        `[insertSignature] modo=${mode} firma (${signatureWidth.toFixed(2)}x${signatureHeight.toFixed(
+          2,
+        )}) escala=${appliedScale.toFixed(3)} coords=(${signatureX.toFixed(2)}, ${signatureY.toFixed(2)})`,
+      );
+      page.drawImage(signatureImage, {
+        x: signatureX,
+        y: signatureY,
+        width: signatureWidth,
+        height: signatureHeight,
+      });
+    } else {
+      this.logger.log(
+        `[insertSignature] modo=${mode} firma omitida (drawSignature=${signatureShouldDraw})`,
+      );
+    }
+
+    const shouldWriteDate = options?.writeDate !== false;
+
+    if (shouldWriteDate) {
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontSize = 7;
+      const padding = this.defaultRectPadding;
+      const rectHeight = fontSize + this.defaultRectExtraHeight;
+      const rectY = res.y - fontSize - this.defaultRectYOffset;
+
+      const dateX = columns ? columns.fecha.x : res.x;
+      const dateWidth = columns ? columns.fecha.w : 80;
+      const textX = dateX + padding;
+      const maxWidth = Math.max(dateWidth - padding * 2, 0);
+      const dateValue = this.truncateText(
+        font,
+        formatCurrentDate(),
+        fontSize,
+        maxWidth,
+      );
 
       page.drawRectangle({
-        x: res.x,
-        y: res.y - 12,
-        width: 80, // Ajusta el ancho según el largo del placeholder
-        height: 22, // Ajusta la altura según el tamaño de la fuente
-        color: rgb(1, 1, 1), // Blanco
+        x: dateX,
+        y: rectY,
+        width: dateWidth,
+        height: rectHeight,
+        color: rgb(1, 1, 1),
         borderColor: rgb(1, 1, 1),
         borderWidth: 0,
       });
 
-      page.drawText(formatCurrentDate(), {
-        x: res.x,
-        y: res.y,
-        size: 7,
-        color: rgb(0, 0, 0),
-      });
-
-      return Buffer.from(await pdfDoc.save());
+      if (dateValue) {
+        page.drawText(dateValue, {
+          x: textX,
+          y: res.y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      }
+    } else {
+      this.logger.log('[insertSignature] escritura de fecha omitida');
     }
-    return null;
+
+    return Buffer.from(await pdfDoc.save());
   }
 
   /**
@@ -138,6 +222,65 @@ export class PdfLibRepository implements PdfRepository {
 
   extractText(pdfBuffer: Buffer): Promise<string> {
     return pdfExtractText(pdfBuffer);
+  }
+
+  async locateSignatureTableColumns(
+    pdfBuffer: Buffer,
+    page: number,
+  ): Promise<SignatureTableColumns | null> {
+    const headers = [
+      { key: 'nombre', label: 'Nombre' },
+      { key: 'puesto', label: 'Puesto' },
+      { key: 'gerencia', label: 'Gerencia' },
+      { key: 'firma', label: 'Firma' },
+      { key: 'fecha', label: 'Fecha' },
+    ] as const;
+
+    const coordinates: { key: typeof headers[number]['key']; x: number }[] = [];
+
+    for (const header of headers) {
+      const coords = await findPlaceholderCoordinates(pdfBuffer, header.label);
+      if (!coords || coords.page !== page) {
+        this.logger.warn(
+          `[locateSignatureTableColumns] encabezado "${header.label}" no encontrado en página ${page + 1}`,
+        );
+        return null;
+      }
+      coordinates.push({ key: header.key, x: coords.x });
+    }
+
+    const sorted = [...coordinates].sort((a, b) => a.x - b.x);
+
+    const gutter = 6;
+    const columns: Partial<Record<typeof headers[number]['key'], SignatureTableColumns[keyof SignatureTableColumns]>> =
+      {};
+
+    for (let index = 0; index < sorted.length; index++) {
+      const current = sorted[index];
+      const next = sorted[index + 1];
+      let width = next ? next.x - current.x - gutter : 100;
+      if (index === sorted.length - 1) {
+        width = Math.max(Math.min(width, 110), 90);
+      }
+      width = Math.max(width, 60);
+
+      const original = coordinates.find((c) => c.key === current.key);
+      if (!original) {
+        return null;
+      }
+
+      columns[current.key] = { x: original.x, w: width };
+    }
+
+    const resolved = columns as SignatureTableColumns;
+
+    this.logger.log(
+      `[locateSignatureTableColumns] página ${page + 1} -> ${Object.entries(resolved)
+        .map(([key, value]) => `${key}=(x:${value.x.toFixed(2)},w:${value.w.toFixed(2)})`)
+        .join(', ')}`,
+    );
+
+    return resolved;
   }
 
   async fillTextAnchors(
@@ -352,6 +495,165 @@ export class PdfLibRepository implements PdfRepository {
     }
 
     return Buffer.from(await pdfDoc.save());
+  }
+
+  async fillRowByColumns(
+    pdfBuffer: Buffer,
+    anchorToken: string,
+    values: Record<'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA', string>,
+    options?: FillRowByColumnsOptions,
+  ): Promise<FillRowByColumnsResult> {
+    if (!pdfBuffer?.length || !anchorToken) {
+      return { buffer: pdfBuffer, mode: 'fallback' };
+    }
+
+    const anchor = await findPlaceholderCoordinates(pdfBuffer, anchorToken);
+    if (!anchor) {
+      this.logger.warn(
+        `[fillRowByColumns] Placeholder ancla no encontrado: ${anchorToken}`,
+      );
+      const fallback = await this.fillRelativeToAnchor(
+        pdfBuffer,
+        anchorToken,
+        values,
+        OFFSETS_DEFAULT,
+        options?.signatureBuffer?.length
+          ? { buffer: options.signatureBuffer, ...SIGNATURE_DEFAULT }
+          : undefined,
+      );
+      return { buffer: fallback, mode: 'fallback' };
+    }
+
+    const columns = await this.locateSignatureTableColumns(pdfBuffer, anchor.page);
+    if (!columns) {
+      const fallback = await this.fillRelativeToAnchor(
+        pdfBuffer,
+        anchorToken,
+        values,
+        OFFSETS_DEFAULT,
+        options?.signatureBuffer?.length
+          ? { buffer: options.signatureBuffer, ...SIGNATURE_DEFAULT }
+          : undefined,
+      );
+      this.logger.log('[fillRowByColumns] columnas no detectadas, usando offsets');
+      return { buffer: fallback, mode: 'fallback' };
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const page = pdfDoc.getPage(anchor.page);
+
+    const columnOrder: Array<keyof SignatureTableColumns> = [
+      'nombre',
+      'puesto',
+      'gerencia',
+      'firma',
+      'fecha',
+    ];
+
+    const valueMap: Record<keyof SignatureTableColumns, keyof typeof values | null> = {
+      nombre: 'NOMBRE',
+      puesto: 'PUESTO',
+      gerencia: 'GERENCIA',
+      firma: null,
+      fecha: 'FECHA',
+    } as const;
+
+    const padding = this.defaultRectPadding;
+    const baselineY = anchor.y;
+
+    for (const key of columnOrder) {
+      const col = columns[key];
+      if (!col) continue;
+
+      if (key === 'firma') {
+        continue;
+      }
+
+      const fontSize = key === 'fecha' ? 7 : this.defaultFontSize;
+      const rectHeight = fontSize + this.defaultRectExtraHeight;
+      const rectX = col.x;
+      const rectY = baselineY - fontSize - this.defaultRectYOffset;
+
+      page.drawRectangle({
+        x: rectX,
+        y: rectY,
+        width: col.w,
+        height: rectHeight,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
+      });
+
+      if (key === 'fecha' && options?.writeDate === false) {
+        continue;
+      }
+
+      const valueKey = valueMap[key];
+      if (!valueKey) continue;
+      const rawValue = (values[valueKey] ?? '').trim();
+      if (!rawValue) continue;
+
+      const maxWidth = Math.max(col.w - padding * 2, 0);
+      const value = this.truncateText(font, rawValue, fontSize, maxWidth);
+      if (!value) continue;
+
+      page.drawText(value, {
+        x: col.x + padding,
+        y: baselineY,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+    }
+
+    let appliedScale = 1;
+    let signatureWidth = SIGNATURE_DEFAULT.width;
+    let signatureHeight = SIGNATURE_DEFAULT.height;
+
+    if (options?.signatureBuffer?.length) {
+      const signatureImage =
+        options.signatureBuffer[0] === 0xff && options.signatureBuffer[1] === 0xd8
+          ? await pdfDoc.embedJpg(options.signatureBuffer)
+          : await pdfDoc.embedPng(options.signatureBuffer);
+
+      const availableWidth = Math.max(columns.firma.w - 6, 1);
+      const rawWidth = signatureImage.width;
+      const rawHeight = signatureImage.height;
+      appliedScale = rawWidth > 0 ? Math.min(1, availableWidth / rawWidth) : 1;
+      signatureWidth = rawWidth * appliedScale;
+      signatureHeight = rawHeight * appliedScale;
+
+      const sigX = columns.firma.x + (columns.firma.w - signatureWidth) / 2;
+      const sigY = baselineY - 25;
+      const cleanupHeight = Math.max(signatureHeight + 12, 50);
+      const cleanupY = sigY - 6;
+
+      page.drawRectangle({
+        x: columns.firma.x,
+        y: cleanupY,
+        width: columns.firma.w,
+        height: cleanupHeight,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
+      });
+
+      page.drawImage(signatureImage, {
+        x: sigX,
+        y: sigY,
+        width: signatureWidth,
+        height: signatureHeight,
+      });
+
+      this.logger.log(
+        `[fillRowByColumns] firma ${signatureWidth.toFixed(2)}x${signatureHeight.toFixed(2)} escala=${appliedScale.toFixed(3)} columna=${columns.firma.x.toFixed(2)} ancho=${columns.firma.w.toFixed(2)}`,
+      );
+    }
+
+    const buffer = Buffer.from(await pdfDoc.save());
+    this.logger.log('[fillRowByColumns] modo columnas aplicado');
+    return { buffer, mode: 'columns' };
   }
 
   private truncateText(

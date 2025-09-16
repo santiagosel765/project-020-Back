@@ -28,8 +28,6 @@ import { BadRequestException } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import {
-  OFFSETS_DEFAULT,
-  SIGNATURE_DEFAULT,
   type PdfRepository,
   type TextAnchorFill,
 } from '../pdf/domain/repositories/pdf.repository';
@@ -41,6 +39,8 @@ const createService = () => {
     extractText: jest.fn(),
     fillTextAnchors: jest.fn(),
     fillRelativeToAnchor: jest.fn(),
+    fillRowByColumns: jest.fn(),
+    locateSignatureTableColumns: jest.fn(),
   } as unknown as jest.Mocked<PdfRepository>;
 
   const prisma = {
@@ -162,6 +162,7 @@ describe('DocumentsService.signDocument', () => {
       signatureBuffer,
       resolved,
       undefined,
+      { writeDate: false },
     );
     expect(awsService.uploadFile).toHaveBeenCalledWith(
       signedBuffer,
@@ -173,7 +174,7 @@ describe('DocumentsService.signDocument', () => {
     });
   });
 
-  it('usa offsets relativos cuando faltan tokens', async () => {
+  it('usa columnas dinámicas cuando faltan tokens', async () => {
     const { service, pdfRepository, awsService, pdfBaseBuffer } =
       createService();
     const resolved = 'FECHA_ELABORA_ELABORA_TEST';
@@ -188,32 +189,91 @@ describe('DocumentsService.signDocument', () => {
 
     pdfRepository.extractText.mockResolvedValue(resolved);
 
-    const relativeBuffer = Buffer.from('relative');
-    pdfRepository.fillRelativeToAnchor.mockResolvedValue(relativeBuffer);
+    const rowBuffer = Buffer.from('row-columns');
+    pdfRepository.fillRowByColumns.mockResolvedValue({
+      buffer: rowBuffer,
+      mode: 'columns',
+    });
+
+    const signedBuffer = Buffer.from('signed-columns');
+    pdfRepository.insertSignature.mockResolvedValue(signedBuffer);
 
     const signatureBuffer = Buffer.from('signature-image');
     const response = await service.signDocument(baseDto, signatureBuffer);
 
     expect(pdfRepository.fillTextAnchors).not.toHaveBeenCalled();
-    expect(pdfRepository.fillRelativeToAnchor).toHaveBeenCalledWith(
+    expect(pdfRepository.fillRowByColumns).toHaveBeenCalledWith(
       pdfBaseBuffer,
       resolved,
       expect.objectContaining({
         NOMBRE: expect.stringContaining('Juan'),
         PUESTO: 'Analista',
         GERENCIA: 'Tecnología',
+        FECHA: expect.any(String),
       }),
-      OFFSETS_DEFAULT,
       expect.objectContaining({
-        dx: SIGNATURE_DEFAULT.dx,
-        dy: SIGNATURE_DEFAULT.dy,
-        width: SIGNATURE_DEFAULT.width,
-        height: SIGNATURE_DEFAULT.height,
+        signatureBuffer,
+        writeDate: false,
+      }),
+    );
+    expect(pdfRepository.insertSignature).toHaveBeenCalledWith(
+      rowBuffer,
+      signatureBuffer,
+      resolved,
+      undefined,
+      { drawSignature: false, writeDate: true },
+    );
+    expect(awsService.uploadFile).toHaveBeenCalledWith(
+      signedBuffer,
+      'test.pdf',
+    );
+    expect(response).toEqual({
+      status: expect.any(Number),
+      data: expect.any(String),
+    });
+  });
+
+  it('recurre al fallback cuando no se detectan columnas', async () => {
+    const { service, pdfRepository, awsService, pdfBaseBuffer } =
+      createService();
+    const resolved = 'FECHA_ELABORA_ELABORA_TEST';
+
+    jest
+      .spyOn<any, any>(service as any, 'resolvePlaceholderInPdf')
+      .mockResolvedValue({
+        resolved,
+        primary: resolved,
+        candidates: [resolved],
+      });
+
+    pdfRepository.extractText.mockResolvedValue(resolved);
+
+    const fallbackBuffer = Buffer.from('fallback');
+    pdfRepository.fillRowByColumns.mockResolvedValue({
+      buffer: fallbackBuffer,
+      mode: 'fallback',
+    });
+
+    const signatureBuffer = Buffer.from('signature-image');
+    const response = await service.signDocument(baseDto, signatureBuffer);
+
+    expect(pdfRepository.fillRowByColumns).toHaveBeenCalledWith(
+      pdfBaseBuffer,
+      resolved,
+      expect.objectContaining({
+        NOMBRE: expect.stringContaining('Juan'),
+        PUESTO: 'Analista',
+        GERENCIA: 'Tecnología',
+        FECHA: expect.any(String),
+      }),
+      expect.objectContaining({
+        signatureBuffer,
+        writeDate: false,
       }),
     );
     expect(pdfRepository.insertSignature).not.toHaveBeenCalled();
     expect(awsService.uploadFile).toHaveBeenCalledWith(
-      relativeBuffer,
+      fallbackBuffer,
       'test.pdf',
     );
     expect(response).toEqual({

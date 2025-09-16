@@ -1,6 +1,26 @@
 import { Signature } from 'src/documents/dto/sign-document.dto';
 import { SignaturePosition } from '../value-objects/signature-position.vo';
 
+export type SignatureTableColumn = { x: number; w: number };
+
+export type SignatureTableColumns = {
+  nombre: SignatureTableColumn;
+  puesto: SignatureTableColumn;
+  gerencia: SignatureTableColumn;
+  firma: SignatureTableColumn;
+  fecha: SignatureTableColumn;
+};
+
+export type FillRowByColumnsOptions = {
+  signatureBuffer?: Buffer;
+  writeDate?: boolean;
+};
+
+export type FillRowByColumnsResult = {
+  buffer: Buffer;
+  mode: 'columns' | 'fallback';
+};
+
 export const PDF_REPOSITORY = Symbol('PDF_REPOSITORY');
 
 export interface TextAnchorFill {
@@ -34,6 +54,7 @@ export interface PdfRepository {
     signatureBuffer: Buffer,
     placeholder: string,
     position: SignaturePosition,
+    options?: { writeDate?: boolean; drawSignature?: boolean },
   ): Promise<Buffer | null>;
   insertMultipleSignature(
     pdfBuffer: Buffer,
@@ -61,6 +82,18 @@ export interface PdfRepository {
       height: number;
     },
   ): Promise<Buffer>;
+
+  locateSignatureTableColumns(
+    pdfBuffer: Buffer,
+    page: number,
+  ): Promise<SignatureTableColumns | null>;
+
+  fillRowByColumns(
+    pdfBuffer: Buffer,
+    anchorToken: string,
+    values: Record<'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA', string>,
+    options?: FillRowByColumnsOptions,
+  ): Promise<FillRowByColumnsResult>;
 }
 
 export const CELL = { height: 22, textSize: 8 } as const;
