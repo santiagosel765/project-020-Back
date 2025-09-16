@@ -6,6 +6,7 @@ import {
   PdfRepository,
   RelativeField,
   SIGNATURE_DEFAULT,
+  SignatureTableColumn,
   SignatureTableColumns,
   TextAnchorFill,
   CELL,
@@ -40,7 +41,7 @@ export class PdfLibRepository implements PdfRepository {
     font: PDFFont,
     text: string,
     x: number, // borde izquierdo de la celda
-    y: number, // baseline
+    y: number, // baseline del texto
     width: number, // ancho de la celda
     fontSize: number,
   ) {
@@ -637,9 +638,7 @@ export class PdfLibRepository implements PdfRepository {
 
     const anchor = await findPlaceholderCoordinates(pdfBuffer, anchorToken);
     if (!anchor) {
-      this.logger.warn(
-        `[fillRowByColumns] Placeholder ancla no encontrado: ${anchorToken}`,
-      );
+      this.logger.warn(`[fillRowByColumns] Placeholder ancla no encontrado: ${anchorToken}`);
       const fallback = await this.fillRelativeToAnchor(
         pdfBuffer,
         anchorToken,
@@ -667,100 +666,70 @@ export class PdfLibRepository implements PdfRepository {
       return { buffer: fallback, mode: 'fallback' };
     }
 
-    this.logger.log(
-      `[fillRowByColumns] anchor=(${anchor.x.toFixed(2)}, ${anchor.y.toFixed(2)})`,
-    );
-
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const page = pdfDoc.getPage(anchor.page);
 
-    this.logger.log(`[fillRowByColumns] cols=` + JSON.stringify(columns));
-
     const baselineY = anchor.y;
-    const padding = this.defaultRectPadding;
-    const rowHeight = CELL.height + 10; // altura un poco mayor para limpiar bien
+    const padding = this.defaultRectPadding; // 2
+    const cellHeight = CELL.height + 8; // ≈30px para buena limpieza
 
-    const columnOrder: Array<keyof SignatureTableColumns> = [
-      'nombre',
-      'puesto',
-      'gerencia',
-      'firma',
-      'fecha',
-    ];
+    // Limpia una celda sin tocar la columna azul
+    const clearCell = (col: SignatureTableColumn, extraTop = 0, extraBottom = 0) => {
+      const rectY = baselineY - cellHeight + extraBottom;
+      const rectH = cellHeight + extraTop - extraBottom;
+      page.drawRectangle({
+        x: col.x,
+        y: rectY,
+        width: col.w,
+        height: rectH,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
+      });
+    };
 
-    const valueMap: Record<keyof SignatureTableColumns, keyof typeof values | null> = {
-      nombre: 'NOMBRE',
-      puesto: 'PUESTO',
-      gerencia: 'GERENCIA',
-      firma: null,
-      fecha: 'FECHA',
-    } as const;
+    // Limpieza precisa celda por celda
+    clearCell(columns.nombre);
+    clearCell(columns.puesto);
+    clearCell(columns.gerencia);
+    clearCell(columns.firma, /*extraTop=*/12, /*extraBottom=*/4); // más alto para borrar firma previa
+    clearCell(columns.fecha);
 
-    // --- Limpieza de toda la fila (borra placeholders que quedan detrás)
-    const xs = Object.values(columns).map((c) => c.x);
-    const rights = Object.values(columns).map((c) => c.x + c.w);
-    const x0 = Math.min(...xs);
-    const x1 = Math.max(...rights);
-    const totalWidth = x1 - x0;
+    // Escribir valores (Nombre en 2 líneas)
+    const [firstName, firstLast] = this.firstNameAndFirstLast(values.NOMBRE ?? '');
+    this.drawTwoLines(
+      page,
+      font,
+      firstName,
+      firstLast,
+      columns.nombre.x + padding,
+      baselineY,
+      Math.max(columns.nombre.w - padding * 2, 0),
+      this.defaultFontSize,
+    );
 
-    page.drawRectangle({
-      x: x0,
-      y: baselineY - rowHeight,
-      width: totalWidth,
-      height: rowHeight + 8, // un poco extra
-      color: rgb(1, 1, 1),
-      borderColor: rgb(1, 1, 1),
-      borderWidth: 0,
-    });
-
-    // --- Pintar valores por columna (nombre en dos líneas, fecha centrada)
-    for (const key of columnOrder) {
-      const col = columns[key];
-      if (!col || key === 'firma') continue;
-
-      const fontSize = key === 'fecha' ? 7 : this.defaultFontSize;
-      if (key === 'fecha' && options?.writeDate === false) continue;
-
-      const vk = valueMap[key];
-      if (!vk) continue;
-
-      const raw = (values[vk] ?? '').trim();
-      if (!raw) continue;
-
+    const writeLeft = (col: SignatureTableColumn, text: string, size: number) => {
       const maxW = Math.max(col.w - padding * 2, 0);
+      const value = this.truncateText(font, (text ?? '').trim(), size, maxW);
+      if (!value) return;
+      page.drawText(value, { x: col.x + padding, y: baselineY, size, font, color: rgb(0, 0, 0) });
+    };
 
-      if (key === 'nombre') {
-        const [firstName, firstLast] = this.firstNameAndFirstLast(raw);
-        this.drawTwoLines(
-          page,
-          font,
-          firstName,
-          firstLast,
-          col.x + padding,
-          baselineY,
-          maxW,
-          fontSize,
-        );
-        continue;
-      }
+    writeLeft(columns.puesto, values.PUESTO ?? '', this.defaultFontSize);
+    writeLeft(columns.gerencia, values.GERENCIA ?? '', this.defaultFontSize);
 
-      const text = this.truncateText(font, raw, fontSize, maxW);
-
-      if (key === 'fecha') {
-        this.drawCenteredText(page, font, text, col.x, baselineY, col.w, fontSize);
-      } else {
-        page.drawText(text, {
-          x: col.x + padding,
-          y: baselineY,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
+    // Fecha centrada
+    if (options?.writeDate !== false) {
+      const fSize = 7;
+      const maxW = Math.max(columns.fecha.w - padding * 2, 0);
+      const dateText = this.truncateText(font, (values.FECHA ?? '').trim(), fSize, maxW);
+      if (dateText) {
+        this.drawCenteredText(page, font, dateText, columns.fecha.x, baselineY, columns.fecha.w, fSize);
       }
     }
 
-    // --- Firma: escalar y centrar en X e Y dentro de su celda
+    // Firma: escalar y centrar (X,Y)
     if (options?.signatureBuffer?.length) {
       const img =
         options.signatureBuffer[0] === 0xff && options.signatureBuffer[1] === 0xd8
@@ -768,27 +737,33 @@ export class PdfLibRepository implements PdfRepository {
           : await pdfDoc.embedPng(options.signatureBuffer);
 
       const availW = Math.max(columns.firma.w - 12, 1);
-      const availH = rowHeight - 4;
-
-      const wScale = availW / img.width;
-      const hScale = availH / img.height;
-      const scale = Math.min(wScale, hScale, 1);
-
+      const availH = cellHeight - 6;
+      const scale = Math.min(availW / img.width, availH / img.height, 1);
       const sigW = img.width * scale;
       const sigH = img.height * scale;
 
       const sigX = columns.firma.x + (columns.firma.w - sigW) / 2;
-      const sigY = baselineY - rowHeight + (rowHeight - sigH) / 2 + 2;
+      const sigY = baselineY - cellHeight + (cellHeight - sigH) / 2 + 2;
+
+      // Limpieza final del área de firma para evitar “sombra”
+      page.drawRectangle({
+        x: columns.firma.x,
+        y: baselineY - cellHeight + 1,
+        width: columns.firma.w,
+        height: cellHeight - 2,
+        color: rgb(1, 1, 1),
+        borderColor: rgb(1, 1, 1),
+        borderWidth: 0,
+      });
 
       page.drawImage(img, { x: sigX, y: sigY, width: sigW, height: sigH });
-
       this.logger.log(
         `[fillRowByColumns] firma centrada ${sigW.toFixed(2)}x${sigH.toFixed(2)} en (${sigX.toFixed(2)}, ${sigY.toFixed(2)})`,
       );
     }
 
     const buffer = Buffer.from(await pdfDoc.save());
-    this.logger.log('[fillRowByColumns] columnas aplicadas con limpieza de fila');
+    this.logger.log('[fillRowByColumns] aplicado (limpieza por celda, sin afectar columna azul)');
     return { buffer, mode: 'columns' };
   }
 
