@@ -275,8 +275,59 @@ export class DocumentsService {
 
     this.logger.log(`[signDocument] Placeholder resuelto: ${resolved}`);
 
+    const suffix = resolved.replace(/^FECHA_/, '');
+    const nameAnchor = `NOMBRE_${suffix}`;
+    const puestoAnchor = `PUESTO_${suffix}`;
+    const gerenciaAnchor = `GERENCIA_${suffix}`;
+
+    const u = await this.prisma.user.findUnique({
+      where: { id: +firmaCuadroDto.userId },
+      select: {
+        primer_nombre: true,
+        segundo_name: true,
+        tercer_nombre: true,
+        primer_apellido: true,
+        segundo_apellido: true,
+        apellido_casada: true,
+        posicion: { select: { nombre: true } },
+        gerencia: { select: { nombre: true } },
+      },
+    });
+
+    const fullName = [
+      u?.primer_nombre,
+      u?.segundo_name,
+      u?.tercer_nombre,
+      u?.primer_apellido,
+      u?.segundo_apellido,
+      u?.apellido_casada,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    const puesto = (u?.posicion?.nombre ?? '').trim();
+    const gerencia = (u?.gerencia?.nombre ?? '').trim();
+
+    this.logger.log(
+      `[signDocument] anchors texto -> NOMBRE=${nameAnchor}, PUESTO=${puestoAnchor}, GERENCIA=${gerenciaAnchor}`,
+    );
+    this.logger.log(
+      `[signDocument] valores -> nombre="${fullName}", puesto="${puesto}", gerencia="${gerencia}"`,
+    );
+
+    const textMap: Record<string, string> = {
+      [nameAnchor]: fullName,
+      [puestoAnchor]: puesto,
+      [gerenciaAnchor]: gerencia,
+    };
+
+    const pdfWithText = await this.pdfRepository.fillTextAnchors(
+      pdfBuffer,
+      textMap,
+    );
+
     const signedPdfBuffer = await this.pdfRepository.insertSignature(
-      pdfBuffer!,
+      pdfWithText,
       signatureFileBuffer,
       resolved,
       undefined as any,
@@ -490,9 +541,9 @@ export class DocumentsService {
       '[DESCRIPCION]': createCuadroFirmaDto.descripcion ?? '',
       '[FECHA]': formatCurrentDate(),
       '[LOGO_URL]': dbPlantilla.empresa?.logo ?? '',
-      FIRMANTE_ELABORA: nombreElabora,
-      PUESTO_ELABORA: puestoElabora,
-      GERENCIA_ELABORA: gerenciaElabora,
+      FIRMANTE_ELABORA: nombreElabora || 'NOMBRE_ELABORA_ELABORA',
+      PUESTO_ELABORA: puestoElabora || 'PUESTO_ELABORA_ELABORA',
+      GERENCIA_ELABORA: gerenciaElabora || 'GERENCIA_ELABORA_ELABORA',
       FECHA_ELABORA: `FECHA_ELABORA_${nombreElaboraSlug}`,
       '[FILAS_REVISA]': filasRevisaStr ?? '',
       '[FILAS_APRUEBA]': filasApruebaStr ?? '',

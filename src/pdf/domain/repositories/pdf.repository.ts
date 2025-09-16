@@ -1,5 +1,5 @@
-import { Signature } from "src/documents/dto/sign-document.dto";
-import { SignaturePosition } from "../value-objects/signature-position.vo";
+import { Signature } from 'src/documents/dto/sign-document.dto';
+import { SignaturePosition } from '../value-objects/signature-position.vo';
 
 export const PDF_REPOSITORY = Symbol('PDF_REPOSITORY');
 
@@ -15,15 +15,18 @@ export interface PdfRepository {
     pdfBuffer: Buffer,
     signatureBuffer: Buffer,
     placeholder: string,
-    position: SignaturePosition
-  ): Promise<Buffer|null>;
+    position: SignaturePosition,
+  ): Promise<Buffer | null>;
   insertMultipleSignature(
     pdfBuffer: Buffer,
     signatures: Signature[],
-    position: SignaturePosition
-  ): Promise<Buffer|null>;
+    position: SignaturePosition,
+  ): Promise<Buffer | null>;
 
-  extractText(
+  extractText(pdfBuffer: Buffer): Promise<string>;
+
+  fillTextAnchors(
     pdfBuffer: Buffer,
-  ): Promise<string>;
+    replacements: Record<string, string>,
+  ): Promise<Buffer>;
 }

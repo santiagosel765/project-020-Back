@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PdfRepository } from '../domain/repositories/pdf.repository';
 import { SignaturePosition } from '../domain/value-objects/signature-position.vo';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { findPlaceholderCoordinates, pdfExtractText } from '../helpers';
 import { Signature } from 'src/documents/dto/sign-document.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
@@ -9,7 +9,6 @@ import { formatCurrentDate } from 'src/helpers/formatDate';
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form
 @Injectable()
 export class PdfLibRepository implements PdfRepository {
-
   logger = new Logger('PdfLibRepository');
 
   /**
@@ -57,8 +56,8 @@ export class PdfLibRepository implements PdfRepository {
       page.drawRectangle({
         x: res.x,
         y: res.y - 12,
-        width: 80,      // Ajusta el ancho según el largo del placeholder
-        height: 22,     // Ajusta la altura según el tamaño de la fuente
+        width: 80, // Ajusta el ancho según el largo del placeholder
+        height: 22, // Ajusta la altura según el tamaño de la fuente
         color: rgb(1, 1, 1), // Blanco
         borderColor: rgb(1, 1, 1),
         borderWidth: 0,
@@ -132,4 +131,77 @@ export class PdfLibRepository implements PdfRepository {
     return pdfExtractText(pdfBuffer);
   }
 
+  async fillTextAnchors(
+    pdfBuffer: Buffer,
+    replacements: Record<string, string>,
+  ): Promise<Buffer> {
+    if (!pdfBuffer?.length) {
+      return pdfBuffer;
+    }
+
+    const entries = Object.entries(replacements ?? {}).filter(
+      ([anchor]) => !!anchor,
+    );
+
+    if (!entries.length) {
+      return pdfBuffer;
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    let modified = false;
+
+    for (const [anchor, rawValue] of entries) {
+      try {
+        const coords = await findPlaceholderCoordinates(pdfBuffer, anchor);
+        if (!coords) {
+          this.logger.warn(
+            `[fillTextAnchors] Placeholder de texto no encontrado: ${anchor}`,
+          );
+          continue;
+        }
+
+        const page = pdfDoc.getPage(coords.page);
+        const fontSize = 7;
+        const value = (rawValue ?? '').trim();
+        const placeholderWidth = font.widthOfTextAtSize(anchor, fontSize);
+        const textWidth = value ? font.widthOfTextAtSize(value, fontSize) : 0;
+        const rectWidth = Math.max(placeholderWidth, textWidth) + 4;
+        const rectHeight = fontSize + 8;
+        const rectY = coords.y - fontSize;
+
+        page.drawRectangle({
+          x: coords.x,
+          y: rectY,
+          width: rectWidth,
+          height: rectHeight,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(1, 1, 1),
+          borderWidth: 0,
+        });
+
+        if (value) {
+          page.drawText(value, {
+            x: coords.x,
+            y: coords.y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        }
+
+        modified = true;
+      } catch (error) {
+        this.logger.error(
+          `[fillTextAnchors] Error al reemplazar placeholder "${anchor}": ${error}`,
+        );
+      }
+    }
+
+    if (!modified) {
+      return pdfBuffer;
+    }
+
+    return Buffer.from(await pdfDoc.save());
+  }
 }
