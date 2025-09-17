@@ -92,6 +92,55 @@ export class DocumentsService {
     );
   }
 
+  private buildInitialsFromFullName(fullName: string): string {
+    if (!fullName) {
+      return '';
+    }
+
+    return fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((part) => part[0]!.toUpperCase())
+      .join('');
+  }
+
+  private mapFirmantesResumen(
+    firmantes?: Array<{
+      user?: {
+        id?: number | string | null;
+        primer_nombre?: string | null;
+        segundo_name?: string | null;
+        tercer_nombre?: string | null;
+        primer_apellido?: string | null;
+        segundo_apellido?: string | null;
+        apellido_casada?: string | null;
+        url_foto?: string | null;
+        urlFoto?: string | null;
+        foto_perfil?: string | null;
+        nombre?: string | null;
+      } | null;
+      user_id?: number | null;
+      responsabilidad_firma?: { nombre?: string | null } | null;
+    }>,
+  ) {
+    return (firmantes ?? []).map((firmante) => {
+      const user = firmante?.user ?? {};
+      const nombreBase = this.buildFullNameFromUser(user);
+      const nombre = nombreBase || joinWithSpace(user.nombre);
+      const iniciales = this.buildInitialsFromFullName(nombre);
+      const rawId = user.id ?? firmante?.user_id ?? 0;
+
+      return {
+        id: Number(rawId),
+        nombre,
+        iniciales,
+        urlFoto: user.url_foto ?? user.urlFoto ?? user.foto_perfil ?? null,
+        responsabilidad: firmante?.responsabilidad_firma?.nombre ?? '',
+      };
+    });
+  }
+
   private async getResponsabilidadIdByNombre(
     nombre: 'Elabora' | 'Revisa' | 'Aprueba' | 'Enterado',
   ): Promise<number> {
@@ -1019,13 +1068,28 @@ export class DocumentsService {
         orderBy,
         skip,
         take: limit,
-        include: { estado_firma: true, empresa: true },
+        include: {
+          estado_firma: true,
+          empresa: true,
+          cuadro_firma_user: {
+            include: { user: true, responsabilidad_firma: true },
+          },
+        },
       }),
     ]);
 
+    const documentos = rows.map((row) => {
+      const { cuadro_firma_user = [], ...rest } = row;
+      return {
+        ...rest,
+        cuadro_firma_user,
+        firmantesResumen: this.mapFirmantesResumen(cuadro_firma_user),
+      };
+    });
+
     return {
       status: HttpStatus.ACCEPTED,
-      data: { documentos: rows, meta: this.meta(total, page, limit) },
+      data: { documentos, meta: this.meta(total, page, limit) },
     };
   }
 
@@ -1051,14 +1115,22 @@ export class DocumentsService {
           estado_firma: true,
           empresa: true,
           cuadro_firma_user: {
-            where: { user_id: userId },
             include: { user: true, responsabilidad_firma: true },
           },
         },
       }),
     ]);
 
-    const asignaciones = rows.map((r) => ({ cuadro_firma: r }));
+    const asignaciones = rows.map((row) => {
+      const { cuadro_firma_user = [], ...rest } = row;
+      return {
+        cuadro_firma: {
+          ...rest,
+          cuadro_firma_user,
+          firmantesResumen: this.mapFirmantesResumen(cuadro_firma_user),
+        },
+      };
+    });
     return {
       status: HttpStatus.ACCEPTED,
       data: { asignaciones, meta: this.meta(total, page, limit) },
