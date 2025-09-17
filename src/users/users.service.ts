@@ -95,6 +95,7 @@ export class UsersService {
       hasSignature: exists,
     };
   }
+
   async updateSignature(
     userId: number,
     file?: Express.Multer.File,
