@@ -234,7 +234,7 @@ async function main() {
     createdUsers.push(user as unknown as user);
   }
 
-  // ADMIN 
+  // ADMIN ..
   const adminUser = createdUsers.find((u) => (u as any).correo_institucional === 'admin@local')!;
   await prisma.user.updateMany({
     where: { id: { not: (adminUser as any).id } },
