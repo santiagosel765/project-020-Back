@@ -105,7 +105,7 @@ export class DocumentsService {
       .join('');
   }
 
-    private mapFirmantesResumen(
+  private async mapFirmantesResumen(
     firmantes?: Array<{
       user?: {
         id?: number | string | null;
@@ -125,29 +125,48 @@ export class DocumentsService {
       responsabilidad_firma?: { nombre?: string | null } | null;
     }>,
   ) {
-    return (firmantes ?? []).map((firmante) => {
-      const user = firmante?.user ?? {};
-      const nombreBase = this.buildFullNameFromUser(user);
-      const nombre = nombreBase || joinWithSpace(user.nombre);
-      const iniciales = this.buildInitialsFromFullName(nombre);
-      const rawId = (user as any).id ?? firmante?.user_id ?? 0;
+    return Promise.all(
+      (firmantes ?? []).map(async (firmante) => {
+        const user = firmante?.user ?? {};
+        const nombreBase = this.buildFullNameFromUser(user);
+        const nombre = nombreBase || joinWithSpace(user.nombre);
+        const iniciales = this.buildInitialsFromFullName(nombre);
+        const rawId = (user as any).id ?? firmante?.user_id ?? 0;
 
-      // Sanear foto: si no es string (e.g. bytes), no la exponemos como URL
-      const rawFoto =
-        (user as any).url_foto ??
-        (user as any).urlFoto ??
-        (user as any).foto_perfil ??
-        null;
-      const urlFoto = typeof rawFoto === 'string' ? rawFoto : null;
+        const rawFoto =
+          (user as any).url_foto ??
+          (user as any).urlFoto ??
+          (user as any).foto_perfil ??
+          null;
+        const urlFoto = await this.resolveFotoUrl(rawFoto);
 
-      return {
-        id: Number(rawId),
-        nombre,
-        iniciales,
-        urlFoto,
-        responsabilidad: firmante?.responsabilidad_firma?.nombre ?? '',
-      };
-    });
+        return {
+          id: Number(rawId),
+          nombre,
+          iniciales,
+          urlFoto,
+          responsabilidad: firmante?.responsabilidad_firma?.nombre ?? '',
+        };
+      }),
+    );
+  }
+
+  private async resolveFotoUrl(raw: unknown): Promise<string | null> {
+    if (typeof raw !== 'string' || raw.length === 0) {
+      return null;
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      return raw;
+    }
+    try {
+      const url = await this.awsService.getPresignedGetUrl(raw);
+      return url ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo generar URL prefirmada para ${raw}: ${error}`,
+      );
+      return null;
+    }
   }
 
   private async getResponsabilidadIdByNombre(
@@ -1087,14 +1106,14 @@ export class DocumentsService {
       }),
     ]);
 
-    const documentos = rows.map((row) => {
+    const documentos = await Promise.all(rows.map(async (row) => {
       const { cuadro_firma_user = [], ...rest } = row;
       return {
         ...rest,
         cuadro_firma_user,
-        firmantesResumen: this.mapFirmantesResumen(cuadro_firma_user),
+        firmantesResumen: await this.mapFirmantesResumen(cuadro_firma_user),
       };
-    });
+    }));
 
     return {
       status: HttpStatus.ACCEPTED,
@@ -1130,16 +1149,16 @@ export class DocumentsService {
       }),
     ]);
 
-    const asignaciones = rows.map((row) => {
+    const asignaciones = await Promise.all(rows.map(async (row) => {
       const { cuadro_firma_user = [], ...rest } = row;
       return {
         cuadro_firma: {
           ...rest,
           cuadro_firma_user,
-          firmantesResumen: this.mapFirmantesResumen(cuadro_firma_user),
+          firmantesResumen: await this.mapFirmantesResumen(cuadro_firma_user),
         },
       };
-    });
+    }));
     return {
       status: HttpStatus.ACCEPTED,
       data: { asignaciones, meta: this.meta(total, page, limit) },

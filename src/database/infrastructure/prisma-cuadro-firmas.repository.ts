@@ -508,7 +508,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           u.apellido_casada,
         );
 
-      const asignaciones = result.map((item) => {
+      const asignaciones = await Promise.all(result.map(async (item) => {
         const { user: usuarioAsignado, cuadro_firma } = item;
         const { user: usuarioCreador, cuadro_firma_user, ...cuadroFirmaRest } =
           cuadro_firma;
@@ -525,12 +525,14 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           );
         }
 
-        const firmantesResumen = (cuadro_firma_user ?? []).map((x: any) => ({
-          id: x.user.id,
-          nombre: buildFullName(x.user),
-          urlFoto: x.user.url_foto ?? null,
-          responsabilidad: x.responsabilidad_firma?.nombre ?? '',
-        }));
+        const firmantesResumen = await Promise.all(
+          (cuadro_firma_user ?? []).map(async (x: any) => ({
+            id: x.user.id,
+            nombre: buildFullName(x.user),
+            urlFoto: await this.resolvePhotoUrl(x.user?.url_foto ?? null),
+            responsabilidad: x.responsabilidad_firma?.nombre ?? '',
+          })),
+        );
 
         return {
           ...item,
@@ -543,7 +545,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             firmantesResumen,
           },
         };
-      });
+      }));
 
       return {
         asignaciones: asignaciones as Asignacion[],
@@ -715,5 +717,13 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
         HttpStatus.FORBIDDEN,
       );
     }
+  }
+
+  private async resolvePhotoUrl(raw?: string | null) {
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) {
+      return raw;
+    }
+    return (await this.awsService.getPresignedGetUrl(raw)) ?? null;
   }
 }

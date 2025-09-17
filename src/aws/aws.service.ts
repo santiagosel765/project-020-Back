@@ -118,6 +118,23 @@ export class AWSService {
     const url = await getSignedUrl(this.s3Client, command, { expiresIn: expireTime });
     return { status: 'success', data: url };
   }
+
+  async getPresignedGetUrl(fileKey: string, expireTime = 3600): Promise<string | null> {
+    const command = new GetObjectCommand({
+      Bucket: envs.bucketName,
+      Key: fileKey,
+    });
+    try {
+      return await getSignedUrl(this.s3Client, command, {
+        expiresIn: expireTime,
+      });
+    } catch (error) {
+      this.logger.error(
+        `No fue posible generar URL prefirmada para ${fileKey}: ${error}`,
+      );
+      return null;
+    }
+  }
   /**
    * Verifica si un archivo existe en el bucket S3 configurado.
    *
