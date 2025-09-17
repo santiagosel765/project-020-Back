@@ -16,7 +16,7 @@ export class UpdateEstadoAsignacionDto {
 
     @IsNumber()
     @IsNotEmpty()
-    userId: number;
+    idUser: number;
 
     @IsString()
     @IsNotEmpty()

@@ -1,5 +1,5 @@
 export interface GenerarCuadroFirmasResult {
-  pdfContent: Buffer;
+  pdfContent: NonSharedBuffer;
   plantilladId: number;
   formattedHtml: string;
   fileName: string;
@@ -86,14 +86,6 @@ export interface HistorialCuadroFirma {
   fecha_observacion: Date | null;
 }
 
-export interface FirmanteResumen {
-  id: number;
-  nombre: string;
-  iniciales: string;
-  urlFoto: string | null;
-  responsabilidad: string;
-}
-
 export interface Asignacion {
   cuadro_firma:    CuadroFirma;
   usuarioAsignado: UsuarioAsignado;
@@ -109,7 +101,6 @@ export interface CuadroFirma {
   estado_firma: Empresa;
   empresa:      Empresa;
   diasTranscurridos: number | undefined;
-  firmantesResumen: FirmanteResumen[];
 }
 
 export interface Empresa {

@@ -75,13 +75,6 @@ export abstract class CuadroFirmaRepository {
 
   abstract getAsignacionesByUserId(userId: number, paginationDto: PaginationDto): Promise<{ asignaciones: Asignacion[], meta: PaginationMetaData}>;
   abstract getSupervisionDocumentos(paginationDto: PaginationDto): Promise<{ documentos: any[], meta: PaginationMetaData}>;
-  abstract getSupervisionStats(): Promise<{
-    total: number;
-    pendiente: number;
-    enProgreso: number;
-    rechazado: number;
-    completado: number;
-  }>;
 
   abstract validarOrdenFirma(firmaCuadroDto: FirmaCuadroDto): Promise<void>;
 

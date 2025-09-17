@@ -1,17 +1,9 @@
-import {
-  HttpException,
-  HttpStatus,
-  Inject,
-  Injectable,
-  ConflictException,
-} from '@nestjs/common';
-import { Prisma } from 'generated/prisma';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import {
   cuadro_firma,
   cuadro_firma_estado_historial,
-  plantilla,
 } from 'generated/prisma';
 import { CuadroFirmaRepository } from '../domain/repositories/cuadro-firmas.repository';
 import { generarFilasFirmas } from 'src/documents/utils/generar-filas-firma.utils';
@@ -35,15 +27,6 @@ import { UpdateEstadoAsignacionDto } from 'src/documents/dto/update-estado-asign
 import { Asignacion } from '../domain/interfaces/cuadro-firmas.interface';
 import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
-import { withPrismaRetry } from 'src/utils/prisma-retry';
-
-function getInitials(fullName: string): string {
-  return fullName
-    .split(' ')
-    .filter(Boolean)
-    .map((n) => n[0].toUpperCase())
-    .join('');
-}
 
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
@@ -55,42 +38,33 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     private readonly pdfGeneratorRepository: PdfGenerationRepository,
     private awsService: AWSService,
   ) {}
+  getSupervisionStats(): Promise<{ total: number; pendiente: number; enProgreso: number; rechazado: number; completado: number; }> {
+    throw new Error('Method not implemented.');
+  }
 
   async generarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
     responsables: ResponsablesFirmaDto,
   ): Promise<{
-    pdfContent: Buffer;
+    pdfContent: NonSharedBuffer;
     plantilladId: number;
     formattedHtml: string;
     fileName: string;
   }> {
-    const dbPlantilla = await withPrismaRetry(
-      () =>
-        this.prisma.plantilla.findFirst({
-          where: {
-            empresa_id: +createCuadroFirmaDto.empresa_id,
-          },
-          include: {
-            empresa: true,
-          },
-        }),
-      this.prisma,
-    );
+    const dbPlantilla = await this.prisma.plantilla.findFirst({
+      where: {
+        empresa_id: +createCuadroFirmaDto.empresa_id,
+      },
+      include: {
+        empresa: true,
+      },
+    });
 
     if (!dbPlantilla) {
       throw new Error(
         `La plantilla de la empresa con ID "${createCuadroFirmaDto.empresa_id}" no existe`,
       );
     }
-
-    // ---- Placeholders seguros (defaults para evitar undefined) ----
-    const nombreElabora = (responsables?.elabora?.nombre ?? '').trim();
-    const puestoElabora = responsables?.elabora?.puesto ?? '';
-    const gerenciaElabora = responsables?.elabora?.gerencia ?? '';
-    const nombreElaboraSlug = nombreElabora
-      ? nombreElabora.replaceAll(' ', '_')
-      : 'ELABORA';
 
     const filasApruebaStr = generarFilasFirmas(
       responsables?.aprueba,
@@ -105,23 +79,22 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     );
 
     const placeholders = {
-      '[TITULO]': createCuadroFirmaDto.titulo ?? '',
-      '[CODIGO]': createCuadroFirmaDto.codigo ?? '',
-      '[VERSION]': createCuadroFirmaDto.version ?? '',
-      '[DESCRIPCION]': createCuadroFirmaDto.descripcion ?? '',
+      '[TITULO]': createCuadroFirmaDto.titulo,
+      '[CODIGO]': createCuadroFirmaDto.codigo,
+      '[VERSION]': createCuadroFirmaDto.version,
+      '[DESCRIPCION]': createCuadroFirmaDto.descripcion,
       '[FECHA]': formatCurrentDate(),
-      '[LOGO_URL]': dbPlantilla.empresa?.logo ?? '',
-      FIRMANTE_ELABORA: nombreElabora,
-      PUESTO_ELABORA: puestoElabora,
-      GERENCIA_ELABORA: gerenciaElabora,
-      FECHA_ELABORA: `FECHA_ELABORA_${nombreElaboraSlug}`,
-      '[FILAS_REVISA]': filasRevisaStr ?? '',
-      '[FILAS_APRUEBA]': filasApruebaStr ?? '',
+      '[LOGO_URL]': dbPlantilla.empresa.logo || '',
+      FIRMANTE_ELABORA: responsables?.elabora?.nombre!,
+      PUESTO_ELABORA: responsables?.elabora?.puesto!,
+      GERENCIA_ELABORA: responsables?.elabora?.gerencia!,
+      FECHA_ELABORA: `FECHA_ELABORA_${responsables?.elabora?.nombre!.replaceAll(' ', '_')!}`,
+      '[FILAS_REVISA]': filasRevisaStr,
+      '[FILAS_APRUEBA]': filasApruebaStr,
     };
-    // ---------------------------------------------------------------
 
     const formattedHtml = this.pdfGeneratorRepository.replacePlaceholders(
-      dbPlantilla.plantilla ?? '',
+      dbPlantilla.plantilla!,
       placeholders,
     );
 
@@ -140,99 +113,45 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
   async guardarCuadroFirmas(
     createCuadroFirmaDto: CreateCuadroFirmaDto,
-    _responsables: ResponsablesFirmaDto,
-    documentoPDF: Buffer,       // opcional: solo si también quieres persistirlo en DB
-    pdfContent: Buffer | null,  // opcional: idem
+    responsables: ResponsablesFirmaDto,
+    documentoPDF: Buffer,
+    pdfContent: Buffer | null,
     plantilladId: number,
     formattedHtml: string,
-    fileName: string,           // nombre del PDF en S3
-    cuadroFirmasKey: string,    // key del PDF en S3
-    bucketFileName: string,     // key del documento adjunto en S3
+    fileName: string,
+    cuadroFirmasKey: string,
+    bucketFileName: string,
     createdBy: number,
   ): Promise<cuadro_firma> {
-    try {
-      // 1) Transacción rápida: SOLO metadatos (nada de BLOBs)
-      const { cfId, docId } = await withPrismaRetry(
-        () =>
-          this.prisma.$transaction(
-            async (tx) => {
-              const cf = await tx.cuadro_firma.create({
-                data: {
-                  titulo:      createCuadroFirmaDto.titulo,
-                  descripcion: createCuadroFirmaDto.descripcion,
-                  codigo:      createCuadroFirmaDto.codigo,
-                  version:     createCuadroFirmaDto.version,
+    // Guardar cuadro de firmas en DB
+    const cuadroFirmaDB = await this.prisma.cuadro_firma.create({
+      data: {
+        titulo: createCuadroFirmaDto.titulo,
+        descripcion: createCuadroFirmaDto.descripcion,
+        codigo: createCuadroFirmaDto.codigo,
+        version: createCuadroFirmaDto.version,
+        pdf: pdfContent,
+        empresa: { connect: { id: +createCuadroFirmaDto.empresa_id } },
+        plantilla: { connect: { id: plantilladId } },
+        user: { connect: { id: createdBy } },
+        pdf_html: formattedHtml,
+        nombre_pdf: fileName,
+        url_pdf: cuadroFirmasKey,
+      },
+    });
 
-                  // ❌ NO guardes BLOBs aquí
-                  // pdf: pdfContent,
+    // Guardar documento
+    await this.prisma.documento.create({
+      data: {
+        cuadro_firma: { connect: { id: cuadroFirmaDB.id } },
+        pdf: documentoPDF,
+        user: { connect: { id: createdBy } },
+        nombre_archivo: bucketFileName,
+        url_documento: bucketFileName,
+      },
+    });
 
-                  // ✅ metadatos / html
-                  pdf_html:   formattedHtml,
-                  nombre_pdf: fileName,
-                  url_pdf:    cuadroFirmasKey,
-
-                  empresa:   { connect: { id: +createCuadroFirmaDto.empresa_id } },
-                  plantilla: { connect: { id: plantilladId } },
-                  user:      { connect: { id: createdBy } },
-                },
-              });
-
-              const doc = await tx.documento.create({
-                data: {
-                  cuadro_firma:   { connect: { id: cf.id } },
-
-                  // ❌ NO BLOB aquí
-                  // pdf: documentoPDF,
-
-                  nombre_archivo: bucketFileName,
-                  url_documento:  bucketFileName,
-                  user:           { connect: { id: createdBy } },
-                },
-              });
-
-              // Devuelve los IDs para actualizarlos FUERA de la transacción
-              return { cfId: cf.id, docId: doc.id };
-            },
-            { timeout: 20_000, maxWait: 5_000 } // sube el timeout de la transacción
-          ),
-        this.prisma
-      );
-
-      // 2) (Opcional) Escribe BLOBs FUERA de la transacción (no bloquea, no timeouts)
-      /* if (pdfContent) {
-        await withPrismaRetry(
-          () =>
-            this.prisma.cuadro_firma.update({
-              where: { id: cfId },
-              data: { pdf: pdfContent },
-            }),
-          this.prisma
-        );
-      }
-
-      if (documentoPDF) {
-        await withPrismaRetry(
-          () =>
-            this.prisma.documento.update({
-              where: { id: docId }, 
-              data: { pdf: documentoPDF },
-            }),
-          this.prisma
-        );
-      }
- */
-      // 3) Devuelve el cuadro_firma completo (si lo necesitas para el flujo)
-      return await withPrismaRetry(
-        () => this.prisma.cuadro_firma.findUniqueOrThrow({ where: { id: cfId } }),
-        this.prisma
-      );
-
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('El código ya está en uso. Elige otro código.');
-      }
-      throw e;
-    }
+    return cuadroFirmaDB;
   }
 
   async updateCuadroFirmas(
@@ -378,7 +297,6 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       },
       select: {
         estaFirmado: true,
-        fecha_firma: true,
         user: {
           select: {
             id: true,
@@ -389,23 +307,15 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             segundo_apellido: true,
             apellido_casada: true,
             correo_institucional: true,
-            codigo_empleado: true,
-            posicion: { select: { nombre: true } },
-            gerencia: { select: { nombre: true } },
           },
         },
         responsabilidad_firma: {
           select: {
             id: true,
             nombre: true,
-            orden: true,
           },
         },
       },
-      orderBy: [
-        { responsabilidad_firma: { orden: 'asc' } },
-        { user: { primer_apellido: 'asc' } },
-      ],
     });
   }
 
@@ -494,7 +404,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
         cuadroFirmaId: updateEstadoAsignacion.idCuadroFirma,
         estadoFirmaId: updateEstadoAsignacion.idEstadoFirma,
-        userId: updateEstadoAsignacion.userId, // ? persona que actualiza el cuadro de firmas
+        userId: updateEstadoAsignacion.idUser, // ? persona que actualiza el cuadro de firmas
         observaciones:
           updateEstadoAsignacion.observaciones ??
           `La asignación ha pasado al estado ${updateEstadoAsignacion.nombreEstadoFirma}`,
@@ -519,147 +429,53 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
   async getAsignacionesByUserId(userId: number, paginationDto: PaginationDto) {
     try {
-      const {
-        page = 1,
-        limit = 10,
-        estado,
-        search,
-        empresa,
-        sort = 'desc',
-        includeFirmantes = true,
-      } = paginationDto;
+      const { page = 1, limit = 10 } = paginationDto;
 
-      const where: any = {
-        user_id: userId,
-        ...(estado || search || empresa
-          ? {
-              cuadro_firma: {
-                ...(estado
-                  ? {
-                      estado_firma: {
-                        nombre: { equals: estado, mode: 'insensitive' },
-                      },
-                    }
-                  : {}),
-                ...(empresa ? { empresa_id: empresa } : {}),
-                ...(search
-                  ? {
-                      OR: [
-                        { titulo: { contains: search, mode: 'insensitive' } },
-                        { descripcion: { contains: search, mode: 'insensitive' } },
-                        { codigo: { contains: search, mode: 'insensitive' } },
-                      ],
-                    }
-                  : {}),
-              },
-            }
-          : {}),
-      };
-
-      const { result, totalResult, firmantes } = await this.prisma.$transaction(
-        async (tx) => {
-          const result = await tx.cuadro_firma_user.findMany({
-            take: limit,
-            skip: (page - 1) * limit,
-            where,
-            orderBy: {
-              cuadro_firma: { add_date: sort === 'asc' ? 'asc' : 'desc' },
-            },
+      const result = await this.prisma.cuadro_firma_user.findMany({
+        take: limit,
+        skip: (page - 1) * limit,
+        where: {
+          user_id: userId,
+        },
+        select: {
+          cuadro_firma: {
             select: {
-              cuadro_firma: {
+              titulo: true,
+              descripcion: true,
+              codigo: true,
+              version: true,
+              nombre_pdf: true,
+              add_date: true,
+              estado_firma: {
                 select: {
                   id: true,
-                  titulo: true,
-                  descripcion: true,
-                  codigo: true,
-                  version: true,
-                  nombre_pdf: true,
-                  add_date: true,
-                  estado_firma: {
-                    select: { id: true, nombre: true },
-                  },
-                  empresa: {
-                    select: { id: true, nombre: true },
-                  },
-                  user: {
-                    select: {
-                      correo_institucional: true,
-                      codigo_empleado: true,
-                    },
-                  },
+                  nombre: true,
                 },
               },
-              user: true,
-            },
-            distinct: ['cuadro_firma_id'],
-          });
-
-          const totalResult = await tx.cuadro_firma_user.findMany({
-            where,
-            select: { cuadro_firma_id: true },
-            distinct: ['cuadro_firma_id'],
-          });
-
-          const firmantes = result.length
-            ? await tx.cuadro_firma_user.findMany({
-                where: {
-                  cuadro_firma_id: {
-                    in: result.map((r) => r.cuadro_firma.id),
-                  },
-                },
+              empresa: {
                 select: {
-                  cuadro_firma_id: true,
-                  user_id: true,
-                  user: {
-                    select: {
-                      id: true,
-                      primer_nombre: true,
-                      primer_apellido: true,
-                      codigo_empleado: true,
-                      correo_institucional: true,
-                      url_foto: true,
-                    },
-                  },
-                  responsabilidad_firma: {
-                    select: { id: true, nombre: true, orden: true },
-                  },
+                  id: true,
+                  nombre: true,
                 },
-                orderBy: {
-                  responsabilidad_firma: { orden: 'asc' },
+              },
+              user: {
+                select: {
+                  correo_institucional: true,
+                  codigo_empleado: true,
                 },
-              })
-            : [];
-
-          return { result, totalResult, firmantes };
+              },
+            },
+          },
+          user: true,
         },
-      );
-
-      const totalCount = totalResult.length;
+        distinct: ['cuadro_firma_id'],
+      });
+      const totalCount = result.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
-      const firmantesMap = firmantes.reduce(
-        (acc, f) => {
-          const nombre = `${f.user.primer_nombre} ${f.user.primer_apellido}`.trim();
-          const list = acc.get(f.cuadro_firma_id) ?? [];
-          list.push({
-            userId: f.user_id,
-            nombre,
-            codigo: f.user.codigo_empleado,
-            correo: f.user.correo_institucional,
-            responsabilidad: {
-              id: f.responsabilidad_firma?.id ?? 0,
-              nombre: f.responsabilidad_firma?.nombre ?? '',
-            },
-            urlFoto: f.user.url_foto,
-          });
-          acc.set(f.cuadro_firma_id, list);
-          return acc;
-        },
-        new Map<number, any[]>(),
-      );
-
       const mapped = result.map((item) => {
+        // Calcula días solo si el estado no es Rechazado ni Finalizado
         let diasTranscurridos: number | undefined = undefined;
         const estado = item.cuadro_firma.estado_firma?.nombre?.toLowerCase();
         if (estado !== 'rechazado' && estado !== 'finalizado') {
@@ -671,15 +487,6 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           );
         }
 
-        const firmantesCuadro = firmantesMap.get(item.cuadro_firma.id) || [];
-        const firmantesResumen = firmantesCuadro.map((f) => ({
-          id: f.userId,
-          nombre: f.nombre,
-          iniciales: getInitials(f.nombre),
-          urlFoto: f.urlFoto ?? null,
-          responsabilidad: f.responsabilidad.nombre,
-        }));
-
         return {
           ...item,
           usuarioAsignado: item.user,
@@ -689,7 +496,6 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             ...item.cuadro_firma,
             user: undefined,
             diasTranscurridos,
-            firmantesResumen,
           },
         };
       });
@@ -697,6 +503,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       return {
         asignaciones: mapped as Asignacion[],
         meta: {
+          totalPages,
           totalCount,
           page: currentPage,
           limit,
@@ -714,131 +521,67 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
   }
   async getSupervisionDocumentos(paginationDto: PaginationDto) {
     try {
-      const {
-        page = 1,
-        limit = 10,
-        estado,
-        search,
-        empresa,
-        sort = 'desc',
-        includeFirmantes = true,
-      } = paginationDto;
+      const { page = 1, limit = 10 } = paginationDto;
 
-      const where: any = {
-        ...(estado
-          ? { estado_firma: { nombre: { equals: estado, mode: 'insensitive' } } }
-          : {}),
-        ...(empresa ? { empresa_id: empresa } : {}),
-        ...(search
-          ? {
-              OR: [
-                { titulo: { contains: search, mode: 'insensitive' } },
-                { descripcion: { contains: search, mode: 'insensitive' } },
-                { codigo: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      };
-
-      const [result, totalCount] = await this.prisma.$transaction([
-        this.prisma.cuadro_firma.findMany({
-          take: limit,
-          skip: (page - 1) * limit,
-          where,
-          orderBy: { add_date: sort === 'asc' ? 'asc' : 'desc' },
-          select: {
-            id: true,
-            titulo: true,
-            descripcion: true,
-            codigo: true,
-            version: true,
-            add_date: true,
-            estado_firma: {
-              select: { id: true, nombre: true },
-            },
-            empresa: {
-              select: { id: true, nombre: true },
+      const result = await this.prisma.cuadro_firma.findMany({
+        take: limit,
+        skip: (page - 1) * limit,
+        select: {
+          id: true,
+          titulo: true,
+          descripcion: true,
+          codigo: true,
+          version: true,
+          add_date: true,
+          estado_firma: {
+            select: {
+              id: true,
+              nombre: true,
             },
           },
-        }),
-        this.prisma.cuadro_firma.count({ where }),
-      ]);
+          empresa: {
+            select: {
+              id: true,
+              nombre: true,
+            },
+          },
 
+        },
+      });
+
+      const totalCount = result.length;
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
-      let firmantesMap = new Map<number, any[]>();
-      if (includeFirmantes && result.length > 0) {
-        const firmantes = await this.prisma.cuadro_firma_user.findMany({
-          where: { cuadro_firma_id: { in: result.map((r) => r.id) } },
-          select: {
-            cuadro_firma_id: true,
-            user: {
-              select: {
-                id: true,
-                primer_nombre: true,
-                primer_apellido: true,
-                url_foto: true,
-              },
-            },
-            responsabilidad_firma: { select: { nombre: true, orden: true } },
+      const mapped = await Promise.all(result.map(async (item) => {
+        // ? Calcula días solo si el estado no es Rechazado ni Finalizado
+        let diasTranscurridos: number | undefined = undefined;
+        const estado = item.estado_firma!.nombre?.toLowerCase();
+        if (estado !== 'rechazado' && estado !== 'finalizado') {
+          const fechaCreacion = item.add_date;
+          const hoy = new Date();
+          diasTranscurridos = Math.floor(
+            (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+        }
+        // ? Obtiene la observación más reciente del historial
+        const historial = await this.prisma.cuadro_firma_estado_historial.findFirst(
+          { 
+            where: { cuadro_firma_id: item.id },
+            orderBy: { fecha_observacion: 'desc' },
           },
-          orderBy: [
-            { responsabilidad_firma: { orden: 'asc' } },
-            { user: { primer_nombre: 'asc' } },
-          ],
-        });
+          
+        );
 
-        firmantesMap = firmantes.reduce((acc, f) => {
-          const nombre = `${f.user.primer_nombre} ${f.user.primer_apellido}`.trim();
-          const list = acc.get(f.cuadro_firma_id) ?? [];
-          list.push({
-            id: f.user.id,
-            nombre,
-            urlFoto: f.user.url_foto,
-            responsabilidad: f.responsabilidad_firma?.nombre ?? '',
-          });
-          acc.set(f.cuadro_firma_id, list);
-          return acc;
-        }, new Map<number, any[]>());
-      }
+        return {
+          ...item,
+          diasTranscurridos,
+          descripcionEstado: historial?.observaciones
+        };
+      }));
 
-      const mapped = await Promise.all(
-        result.map(async (item) => {
-          let diasTranscurridos: number | undefined = undefined;
-          const estado = item.estado_firma!.nombre?.toLowerCase();
-          if (estado !== 'rechazado' && estado !== 'finalizado') {
-            const fechaCreacion = item.add_date;
-            const hoy = new Date();
-            diasTranscurridos = Math.floor(
-              (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
-                (1000 * 60 * 60 * 24),
-            );
-          }
-          const historial =
-            await this.prisma.cuadro_firma_estado_historial.findFirst({
-              where: { cuadro_firma_id: item.id },
-              orderBy: { fecha_observacion: 'desc' },
-            });
-
-          const firmantesResumen = includeFirmantes
-            ? (firmantesMap.get(item.id) || []).map((f) => ({
-                id: f.id,
-                nombre: f.nombre,
-                iniciales: getInitials(f.nombre),
-                urlFoto: f.urlFoto ?? null,
-                responsabilidad: f.responsabilidad,
-              }))
-            : [];
-
-          return {
-            ...item,
-            diasTranscurridos,
-            descripcionEstado: historial?.observaciones,
-            firmantesResumen,
-          };
-        }),
-      );
+      console.log({mapped})
 
       return {
         documentos: mapped,
@@ -860,75 +603,13 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     }
   }
 
-  async getSupervisionStats() {
-    try {
-      const grouped = await this.prisma.cuadro_firma.groupBy({
-        by: ['estado_firma_id'],
-        _count: { _all: true },
-      });
-
-      // Filtrar nulls para cumplir el tipo number[]
-      const ids = grouped
-        .map((g) => g.estado_firma_id)
-        .filter((v): v is number => v !== null);
-
-      const estados = await this.prisma.estado_firma.findMany({
-        where: { id: { in: ids } }, // <- ids es number[]
-        select: { id: true, nombre: true },
-      });
-
-      const nameMap = new Map(
-        estados.map((e) => [e.id, e.nombre.toLowerCase()]),
-      );
-      const stats = {
-        total: 0,
-        pendiente: 0,
-        enProgreso: 0,
-        rechazado: 0,
-        completado: 0,
-      };
-
-      grouped.forEach((g) => {
-        if (g.estado_firma_id == null) return;
-        const nombre = nameMap.get(g.estado_firma_id); // <- clave number
-        stats.total += g._count._all;
-        switch (nombre) {
-          case 'pendiente':
-            stats.pendiente = g._count._all;
-            break;
-          case 'en progreso':
-          case 'en proceso':
-            stats.enProgreso = g._count._all;
-            break;
-          case 'rechazado':
-            stats.rechazado = g._count._all;
-            break;
-          case 'finalizado':
-          case 'completado':
-            stats.completado = g._count._all;
-            break;
-        }
-      });
-
-      return stats;
-    } catch (error) {
-      throw new HttpException(
-        `Problemas al obtener estadísticas: ${error}"`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   async validarOrdenFirma(firmaCuadroDto: FirmaCuadroDto) {
     // ? Obtener la responsabilidad actual y su orden
-    const responsabilidadActual = await withPrismaRetry(
-      () =>
-        this.prisma.responsabilidad_firma.findUnique({
-          where: { nombre: firmaCuadroDto.nombreResponsabilidad },
-          select: { orden: true },
-        }),
-      this.prisma,
-    );
+    const responsabilidadActual =
+      await this.prisma.responsabilidad_firma.findUnique({
+        where: { nombre: firmaCuadroDto.nombreResponsabilidad },
+        select: { orden: true },
+      });
 
     if (!responsabilidadActual || responsabilidadActual.orden === null) {
       throw new HttpException(
@@ -938,31 +619,23 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     }
 
     // ? Buscar todas las responsabilidades previas (orden menor)
-    const ordenActual = responsabilidadActual.orden;
-    const responsabilidadesPrevias = await withPrismaRetry(
-      () =>
-        this.prisma.responsabilidad_firma.findMany({
-          where: {
-            orden: { lt: ordenActual },
-          },
-          select: { nombre: true },
-        }),
-      this.prisma,
-    );
+    const responsabilidadesPrevias =
+      await this.prisma.responsabilidad_firma.findMany({
+        where: {
+          orden: { lt: responsabilidadActual.orden },
+        },
+        select: { nombre: true },
+      });
 
     // ? Por cada responsabilidad previa, valida que todos hayan firmado
     for (const previa of responsabilidadesPrevias) {
-      const firmantesPrevios = await withPrismaRetry(
-        () =>
-          this.prisma.cuadro_firma_user.findMany({
-            where: {
-              cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
-              responsabilidad_firma: { nombre: previa.nombre },
-              estaFirmado: false,
-            },
-          }),
-        this.prisma,
-      );
+      const firmantesPrevios = await this.prisma.cuadro_firma_user.findMany({
+        where: {
+          cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
+          responsabilidad_firma: { nombre: previa.nombre },
+          estaFirmado: false,
+        },
+      });
       if (firmantesPrevios.length > 0) {
         throw new HttpException(
           `No puedes firmar hasta que todos los responsables de "${previa.nombre}" hayan firmado.`,
@@ -981,20 +654,16 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     data: { [key: string]: any },
   ) {
     try {
-      await withPrismaRetry(
-        () =>
-          this.prisma.cuadro_firma_user.update({
-            where: {
-              cuadro_firma_id_user_id_responsabilidad_id: {
-                cuadro_firma_id: keys.cuadroFirmaId,
-                user_id: keys.userId,
-                responsabilidad_id: keys.responsabilidadId,
-              },
-            },
-            data,
-          }),
-        this.prisma,
-      );
+      await this.prisma.cuadro_firma_user.update({
+        where: {
+          cuadro_firma_id_user_id_responsabilidad_id: {
+            cuadro_firma_id: keys.cuadroFirmaId,
+            user_id: keys.userId,
+            responsabilidad_id: keys.responsabilidadId,
+          },
+        },
+        data,
+      });
     } catch (error) {
       throw new HttpException(
         `Problemas al actualizar cuadro_firma_user: ${error}.`,

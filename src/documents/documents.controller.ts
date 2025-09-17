@@ -11,8 +11,6 @@ import {
   Logger,
   HttpException,
   Query,
-  UseGuards,
-  Req,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -20,26 +18,22 @@ import {
   FilesInterceptor,
 } from '@nestjs/platform-express';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
-import { CreateCuadroFirmaDto, ResponsablesFirmaDto } from './dto/create-cuadro-firma.dto';
+import {
+  CreateCuadroFirmaDto,
+  ResponsablesFirmaDto,
+} from './dto/create-cuadro-firma.dto';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
+import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ResponsablesNormalizerPipe } from './pipes/responsables-normalizer.pipe';
-import { AWSService } from 'src/aws/aws.service';
-import { envs } from 'src/config/envs';
 
-@UseGuards(JwtAuthGuard)
 @Controller('documents')
 export class DocumentsController {
   logger: Logger = new Logger(DocumentsController.name);
 
-  constructor(
-    private readonly documentsService: DocumentsService,
-    private readonly awsService: AWSService,
-  ) {}
+  constructor(private readonly documentsService: DocumentsService) {}
 
   @Post()
   @UseInterceptors(FilesInterceptor('file', 1))
@@ -53,41 +47,14 @@ export class DocumentsController {
 
   @Post('cuadro-firmas/firmar')
   @UseInterceptors(FilesInterceptor('file', 1))
-  async signDocument(
+  signDocumentTest(
     @UploadedFiles() files: Express.Multer.File[],
     @Body() firmaCuadroDto: FirmaCuadroDto,
-    @Req() req: any,
   ) {
-    if (req?.user?.sub !== +firmaCuadroDto.userId) {
-      throw new HttpException('Usuario no autorizado', HttpStatus.FORBIDDEN);
-    }
-    const [signatureFile] = files ?? [];
-    if (signatureFile) {
-      return this.documentsService.signDocument(
-        firmaCuadroDto,
-        signatureFile.buffer,
-      );
-    }
-
-    const useStored =
-      firmaCuadroDto.useStoredSignature === true ||
-      firmaCuadroDto.useStoredSignature === 'true';
-    if (!useStored) {
-      throw new HttpException('No se adjuntó archivo de firma', HttpStatus.BAD_REQUEST);
-    }
-
-    const fileKey = `${envs.bucketSignaturesPrefix}/${req.user.sub}/current.png`;
-    const exists = await this.awsService.checkFileAvailabilityInBucket(fileKey);
-    if (!exists) {
-      throw new HttpException(
-        'El usuario no tiene firma registrada en S3',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-    const signatureBuffer = await this.awsService.getFileBufferByKey(fileKey);
+    const [signatureFile] = files;
     return this.documentsService.signDocument(
       firmaCuadroDto,
-      signatureBuffer,
+      signatureFile.buffer,
     );
   }
 
@@ -95,16 +62,16 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('file', 1))
   updateDocumentoAsignacion(
     @UploadedFiles() files: Express.Multer.File[],
-    @Param('id') id: string,
-    @Body('userId') userId: string,
-    @Body('observaciones') observaciones: string,
+    @Param("id") id: string,
+    @Body('idUser') idUser: string, 
+    @Body('observaciones') observaciones: string, 
   ) {
     const [pdfDocument] = files;
     return this.documentsService.updateDocumentoAsignacion(
       +id,
-      +userId,
+      +idUser,
       observaciones,
-      pdfDocument.buffer,
+      pdfDocument.buffer
     );
   }
 
@@ -125,25 +92,16 @@ export class DocumentsController {
   }
 
   @Get('cuadro-firmas/:id')
-  async findCuadroFirmas(
-    @Param('id') id: string,
-    @Query('expiresIn') expiresIn?: string,
-  ) {
-    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id);
-    const exp = expiresIn ? +expiresIn : undefined;
-    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(
-      cuadroFirmasDB.nombre_pdf,
-      exp,
-    );
+  async findCuadroFirmas(@Param('id') id: string) {
+    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id)
+    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(cuadroFirmasDB.nombre_pdf)
     const documentoDB = await this.documentsService.getDocumentoByCuadroFirmaID(+id);
-    const urlDocumento = await this.documentsService.getDocumentoURLBucket(
-      documentoDB.data.nombre_archivo,
-      exp,
-    );
+    const urlDocumento = await this.documentsService.getDocumentoURLBucket(documentoDB.data.nombre_archivo)
     return {
-      urlCuadroFirmasPDF: urlCuadroFirmasPDF.data,
-      urlDocumento: urlDocumento.data,
+      urlCuadroFirmasPDF: urlCuadroFirmasPDF.data.data,
+      urlDocumento: urlDocumento.data.data,
       ...cuadroFirmasDB,
+      
     };
   }
 
@@ -151,20 +109,27 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('file', 1))
   async guardarCuadroFirmas(
     @UploadedFiles() file: Express.Multer.File[],
-    @Body('responsables', ResponsablesNormalizerPipe)
-    responsables: ResponsablesFirmaDto,
+    @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
     @Body() createCuadroFirmaDto: CreateCuadroFirmaDto,
   ) {
+    console.log({ responsables });
     const [documentoPDF] = file;
-
-    const cuadroFirma = await this.documentsService.guardarCuadroFirmas(
+    // return createCuadroFirmaDto;
+    const cuadroFirmaDB = await this.documentsService.guardarCuadroFirmas(
       createCuadroFirmaDto,
       responsables,
       documentoPDF.buffer,
     );
 
+    if (!cuadroFirmaDB) {
+      throw new HttpException(
+        `Problemas al generar cuadro de firmas`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
     const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
-      cuadroFirmaId: cuadroFirma.id,
+      cuadroFirmaId: cuadroFirmaDB.id,
       estadoFirmaId: 4,
       userId: +createCuadroFirmaDto.createdBy,
       observaciones: 'Cuadro de firmas generado',
@@ -176,11 +141,14 @@ export class DocumentsController {
 
     if (!registroHistorialDB) {
       this.logger.error(
-        `Problemas al crear registro en historial para cuadro de firmas con ID "${cuadroFirma.id}"`,
+        `Problemas al crear registro en historial para cuadro de firmas con ID "${cuadroFirmaDB.id}"`,
       );
     }
 
-    return cuadroFirma;
+    return {
+      status: HttpStatus.CREATED,
+      data: 'Cuadro de firmas generado exitosamente',
+    };
   }
 
   @Post('cuadro-firmas/historial')
@@ -236,11 +204,6 @@ export class DocumentsController {
   ) {
     return this.documentsService.getSupervisionDocumentos(paginationDto);
   }
-
-  @Get('cuadro-firmas/documentos/supervision/stats')
-  getSupervisionStats() {
-    return this.documentsService.getSupervisionStats();
-  }
   
   
   @Patch('cuadro-firmas/estado')
@@ -257,8 +220,7 @@ export class DocumentsController {
   updateCuadroFirmas(
     @Param('id') id: string,
     @Body() updateCuadroFirmaDto: UpdateCuadroFirmaDto,
-    @Body('responsables', ResponsablesNormalizerPipe)
-    responsables: ResponsablesFirmaDto,
+    @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
   ) {
     return this.documentsService.updateCuadroFirmas(
       +id,
