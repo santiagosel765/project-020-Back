@@ -27,6 +27,7 @@ import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { ListQueryDto } from './dto/list-query.dto';
 import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
 
@@ -214,20 +215,27 @@ export class DocumentsController {
     return this.documentsService.getUsuariosFirmantesCuadroFirmas(+id);
   }
   
-  @Get('cuadro-firmas/by-user/:userId')
-  getAsignacionesByUserId(
-    @Param('userId') userId: string,
-    @Query() paginationDto: PaginationDto,
-  ) {
-    return this.documentsService.getAsignacionesByUserId(+userId, paginationDto);
-  }
-  
-
   @Get('cuadro-firmas/documentos/supervision')
-  getSueprvisionDocumentos(
-    @Query() paginationDto: PaginationDto,
+  async listSupervision(@Query() q: ListQueryDto) {
+    return this.documentsService.listSupervision(q);
+  }
+
+  @Get('cuadro-firmas/by-user/:userId')
+  async listByUser(@Param('userId') userId: string, @Query() q: ListQueryDto) {
+    return this.documentsService.listByUser(Number(userId), q);
+  }
+
+  @Get('cuadro-firmas/documentos/supervision/stats')
+  async stats(@Query() q: Pick<ListQueryDto, 'search'>) {
+    return this.documentsService.statsSupervision(q.search);
+  }
+
+  @Get('cuadro-firmas/by-user/:userId/stats')
+  async statsByUser(
+    @Param('userId') userId: string,
+    @Query() q: Pick<ListQueryDto, 'search'>,
   ) {
-    return this.documentsService.getSupervisionDocumentos(paginationDto);
+    return this.documentsService.statsByUser(Number(userId), q.search);
   }
   
   
