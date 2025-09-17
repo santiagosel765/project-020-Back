@@ -17,6 +17,11 @@ import { findPlaceholderCoordinates, pdfExtractText } from '../helpers';
 import { Signature } from 'src/documents/dto/sign-document.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
 
+// Altura efectiva de la fila de firmas y padding para centrar contenido dentro de las celdas.
+const CELL_ROW_HEIGHT = 50;
+const PADDING_X = 2;
+const PADDING_Y = 2;
+
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form
 @Injectable()
 export class PdfLibRepository implements PdfRepository {
@@ -158,27 +163,58 @@ export class PdfLibRepository implements PdfRepository {
     let signatureY = res.y - 25;
     let appliedScale = 1;
 
-    if (columns && signatureImage) {
-      const availableWidth = Math.max(columns.firma.w - 6, 1);
-      const rawWidth = signatureImage.width;
-      const rawHeight = signatureImage.height;
-      appliedScale = rawWidth > 0 ? Math.min(1, availableWidth / rawWidth) : 1;
-      signatureWidth = rawWidth * appliedScale;
-      signatureHeight = rawHeight * appliedScale;
-      signatureX = columns.firma.x + (columns.firma.w - signatureWidth) / 2;
-      signatureY = res.y - 25;
+    // res.y representa el baseline detectado en la fila; fijamos una altura constante para
+    // limpiar y centrar firma/fecha sin invadir filas vecinas.
+    const rowBottomY = res.y - CELL_ROW_HEIGHT / 2;
 
-      const cleanupHeight = Math.max(signatureHeight + 12, 50);
-      const cleanupY = signatureY - 6;
-      page.drawRectangle({
+    if (columns && signatureImage) {
+      const rawWidth = signatureImage.width ?? 0;
+      const rawHeight = signatureImage.height ?? 0;
+      const firmaRect = {
         x: columns.firma.x,
-        y: cleanupY,
-        width: columns.firma.w,
-        height: cleanupHeight,
+        w: columns.firma.w,
+        h: CELL_ROW_HEIGHT,
+      };
+      const maxW = Math.max(0, firmaRect.w - PADDING_X * 2);
+      const maxH = Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2);
+      const scale =
+        rawWidth > 0 && rawHeight > 0
+          ? Math.min(maxW / rawWidth, maxH / rawHeight, 1)
+          : 1;
+      appliedScale = scale;
+      signatureWidth = rawWidth * scale;
+      signatureHeight = rawHeight * scale;
+      const drawX = firmaRect.x + (firmaRect.w - signatureWidth) / 2;
+      const drawY = rowBottomY + (CELL_ROW_HEIGHT - signatureHeight) / 2;
+      signatureX = drawX;
+      signatureY = drawY;
+
+      page.drawRectangle({
+        x: firmaRect.x,
+        y: rowBottomY,
+        width: firmaRect.w,
+        height: CELL_ROW_HEIGHT,
         color: rgb(1, 1, 1),
         borderColor: rgb(1, 1, 1),
         borderWidth: 0,
       });
+    } else if (signatureImage && signatureShouldDraw) {
+      const rawWidth = signatureImage.width ?? 0;
+      const rawHeight = signatureImage.height ?? 0;
+      const maxW = 90;
+      const maxH = Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2);
+      const scale =
+        rawWidth > 0 && rawHeight > 0
+          ? Math.min(maxW / rawWidth, maxH / rawHeight, 1)
+          : 1;
+      appliedScale = scale;
+      signatureWidth = rawWidth * scale;
+      signatureHeight = rawHeight * scale;
+      signatureX = res.x - 120;
+      const unclampedY = res.y - 25;
+      const minY = rowBottomY + PADDING_Y;
+      const maxY = rowBottomY + CELL_ROW_HEIGHT - signatureHeight - PADDING_Y;
+      signatureY = Math.max(minY, Math.min(unclampedY, maxY));
     }
 
     if (signatureImage && signatureShouldDraw) {
@@ -204,14 +240,13 @@ export class PdfLibRepository implements PdfRepository {
     if (shouldWriteDate) {
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const fontSize = 7;
-      const padding = this.defaultRectPadding;
-      const rectHeight = fontSize + this.defaultRectExtraHeight;
-      const rectY = res.y - fontSize - this.defaultRectYOffset;
 
       const dateX = columns ? columns.fecha.x : res.x;
       const dateWidth = columns ? columns.fecha.w : 80;
-      const textX = dateX + padding;
-      const maxWidth = Math.max(dateWidth - padding * 2, 0);
+      const dateRectHeight = CELL_ROW_HEIGHT;
+      const dateRectY = rowBottomY;
+      const textX = dateX + PADDING_X;
+      const maxWidth = Math.max(dateWidth - PADDING_X * 2, 0);
       const dateValue = this.truncateText(
         font,
         formatCurrentDate(),
@@ -219,11 +254,13 @@ export class PdfLibRepository implements PdfRepository {
         maxWidth,
       );
 
+      const textY = rowBottomY + (CELL_ROW_HEIGHT - fontSize) / 2;
+
       page.drawRectangle({
         x: dateX,
-        y: rectY,
+        y: dateRectY,
         width: dateWidth,
-        height: rectHeight,
+        height: dateRectHeight,
         color: rgb(1, 1, 1),
         borderColor: rgb(1, 1, 1),
         borderWidth: 0,
@@ -232,7 +269,7 @@ export class PdfLibRepository implements PdfRepository {
       if (dateValue) {
         page.drawText(dateValue, {
           x: textX,
-          y: res.y,
+          y: textY,
           size: fontSize,
           font,
           color: rgb(0, 0, 0),
