@@ -7,6 +7,7 @@ import {
   Param,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
   HttpStatus,
   Logger,
   HttpException,
@@ -14,9 +15,7 @@ import {
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
-import {
-  FilesInterceptor,
-} from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
 import {
   CreateCuadroFirmaDto,
@@ -28,12 +27,17 @@ import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import { JsonParsePipe } from 'src/common/json-pipe/json-pipe.pipe';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { AWSService } from 'src/aws/aws.service';
+import { envs } from 'src/config/envs';
 
 @Controller('documents')
 export class DocumentsController {
   logger: Logger = new Logger(DocumentsController.name);
 
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    private readonly awsService: AWSService,
+  ) {}
 
   @Post()
   @UseInterceptors(FilesInterceptor('file', 1))
@@ -46,15 +50,36 @@ export class DocumentsController {
   }
 
   @Post('cuadro-firmas/firmar')
-  @UseInterceptors(FilesInterceptor('file', 1))
-  signDocumentTest(
-    @UploadedFiles() files: Express.Multer.File[],
+  @UseInterceptors(FileInterceptor('file'))
+  async signDocumentTest(
+    @UploadedFile() file: Express.Multer.File | undefined,
     @Body() firmaCuadroDto: FirmaCuadroDto,
   ) {
-    const [signatureFile] = files;
+    let signatureBuffer: Buffer | null = null;
+
+    if (file?.buffer?.length) {
+      signatureBuffer = file.buffer;
+    } else {
+      const prefix = envs?.bucketSignaturesPrefix ?? 'signatures';
+      const key = `${prefix}/${firmaCuadroDto.userId}/current.png`;
+
+      try {
+        signatureBuffer = await this.awsService.getFileBuffer(key);
+      } catch (error) {
+        signatureBuffer = null;
+      }
+    }
+
+    if (!signatureBuffer) {
+      throw new HttpException(
+        'No se encontró la firma. Adjunta un archivo o sube tu firma en tu perfil.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     return this.documentsService.signDocument(
       firmaCuadroDto,
-      signatureFile.buffer,
+      signatureBuffer,
     );
   }
 
