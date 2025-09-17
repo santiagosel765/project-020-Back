@@ -4,6 +4,7 @@ import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { envs } from './config/envs';
+import * as bodyParser from 'body-parser'; 
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
@@ -34,6 +35,12 @@ async function bootstrap() {
     credentials: true,
   });
 
+
+  app.use(bodyParser.json({ limit: '50mb' }));
+  app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+  await app.listen(envs.port ?? 3000);
+  logger.log(`Server running on port ${ envs.port }`);
   if (envs.nodeEnv !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('GenesisSign API')
@@ -45,8 +52,5 @@ async function bootstrap() {
       useGlobalPrefix: true,
     });
   }
-
-  await app.listen(envs.port);
-  logger.log(`Server running on port ${envs.port}`);
 }
 bootstrap();

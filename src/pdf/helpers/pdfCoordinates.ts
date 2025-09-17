@@ -42,6 +42,7 @@ export async function findPlaceholderCoordinates(
           combined.length < placeholder.length
         ) {
           combined += items[endIdx].str;
+          // console.log({combined})
           if (combined === placeholder) {
             // Devuelve la posición del primer item de la secuencia
             return {

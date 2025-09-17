@@ -1,0 +1,34 @@
+{
+  "elabora": {
+    "userId": 74,
+    "nombre": "Carlos Ojani Ng Valladares",
+    "puesto": "CEO",
+    "gerencia": "Dirección",
+    "responsabilidadId": 4
+  },
+  "revisa": [
+    {
+      "userId": 76,
+      "nombre": "José Ramón Pérez Gonzalez",
+      "puesto": "Director de Finanzas",
+      "gerencia": "Dirección",
+      "responsabilidadId": 1
+    },
+    {
+      "userId": 75,
+      "nombre": "Camila María Velasquez Gómez",
+      "puesto": "Gerente de RRHH",
+      "gerencia": "Dirección",
+      "responsabilidadId": 1
+    }
+  ],
+  "aprueba": [
+    {
+      "userId": 74,
+      "nombre": "Carlos Ojani Ng Valladares",
+      "puesto": "CEO",
+      "gerencia": "Dirección",
+      "responsabilidadId": 2
+    }
+  ]
+}
