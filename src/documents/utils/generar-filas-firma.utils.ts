@@ -1,47 +1,37 @@
-import { FirmanteUserDto } from "../dto/create-cuadro-firma.dto";
-
-function htmlEscape(s: string): string {
-  // Evita inyectar HTML en nombres/puestos/gerencias
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+export function slugNombre(v: string) {
+  return (v || '').trim().replace(/\s+/g, '_'); // igual a la generación actual
 }
 
-function safeSlug(nombre?: string, fallback = "SIN_NOMBRE"): string {
-  const n = (nombre ?? "").trim();
-  return n ? n.replace(/\s+/g, "_") : fallback;
-}
+type Item = {
+  userId: number;
+  nombre: string;
+  puesto?: string;
+  gerencia?: string;
+};
 
 export function generarFilasFirmas(
-  firmantes: FirmanteUserDto[] | undefined,
-  tipo: "APRUEBA" | "REVISA",
-  labelPrimeraFila: string,
+  items: Item[] | Item | undefined,
+  rol: 'REVISA' | 'APRUEBA',
+  etiquetaIzquierda: string // 'Revisado por:' | 'Aprobado por:'
 ): string {
-  if (!Array.isArray(firmantes) || firmantes.length === 0) return "";
+  const arr = Array.isArray(items) ? items : items ? [items] : [];
 
-  return firmantes
-    .map((f, index) => {
-      const rowLabel = index === 0 ? labelPrimeraFila : "";
-      const nombre = (f?.nombre ?? "").trim();
-      const puesto = f?.puesto ?? "";
-      const gerencia = f?.gerencia ?? "";
+  return arr.map((it) => {
+    const nombre = it?.nombre || '';
+    const puesto = it?.puesto || '';
+    const gerencia = it?.gerencia || '';
 
-      // Este slug se usa en el placeholder de FECHA para firmar luego:
-      // debe coincidir con la lógica del "sign" (nombre con _)
-      const slug = safeSlug(nombre, tipo);
+    // ✅ Solo la FECHA queda como placeholder (ancla para firmar)
+    const fechaToken = `FECHA_${rol}_${slugNombre(nombre || rol)}`;
 
-      return `
-<tr class="tr-firmas">
-  <td class="row-label">${htmlEscape(rowLabel)}</td>
-  <td>${htmlEscape(nombre)}</td>
-  <td>${htmlEscape(puesto)}</td>
-  <td>${htmlEscape(gerencia)}</td>
-  <td class="td-firma"></td>
-  <td>FECHA_${tipo}_${slug}</td>
-</tr>`.trim();
-    })
-    .join("");
+    return `
+<tr>
+  <td style="width:92px;padding:6px 4px;"><b>${etiquetaIzquierda}</b></td>
+  <td style="padding:6px 4px;">${nombre}</td>
+  <td style="padding:6px 4px;">${puesto}</td>
+  <td style="padding:6px 4px;">${gerencia}</td>
+  <td style="padding:6px 4px;"></td>
+  <td style="padding:6px 4px;">${fechaToken}</td>
+</tr>`;
+  }).join('');
 }
