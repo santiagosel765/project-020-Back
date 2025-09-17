@@ -40,6 +40,8 @@ import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { joinWithSpace } from 'src/common/utils/strings';
+import { Prisma } from '@prisma/client';
+import { ListQueryDto } from './dto/list-query.dto';
 
 @Injectable()
 export class DocumentsService {
@@ -963,32 +965,147 @@ export class DocumentsService {
     };
   }
 
-  async getAsignacionesByUserId(userId: number, paginationDto: PaginationDto) {
-    const asignaciones =
-      await this.cuadroFirmasRepository.getAsignacionesByUserId(userId, paginationDto);
-    if (asignaciones.asignaciones.length === 0) {
-      return {
-        status: HttpStatus.BAD_REQUEST,
-        data: `No hay asignaciones para el usuario con id "${userId}"`,
-      };
-    }
+  private buildWhere(
+    search?: string,
+    estado?: string,
+  ): Prisma.cuadro_firmaWhereInput {
     return {
-      status: HttpStatus.ACCEPTED,
-      data: asignaciones,
+      AND: [
+        search
+          ? {
+              OR: [
+                { titulo: { contains: search, mode: 'insensitive' } },
+                { descripcion: { contains: search, mode: 'insensitive' } },
+                { codigo: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {},
+        estado ? { estado_firma: { nombre: estado } } : {},
+      ],
     };
   }
-  async getSupervisionDocumentos(paginationDto: PaginationDto) {
-    const asignaciones =
-      await this.cuadroFirmasRepository.getSupervisionDocumentos(paginationDto);
-    if (asignaciones.documentos.length === 0) {
-      return {
-        status: HttpStatus.BAD_REQUEST,
-        data: `No hay documentos registrados en la plataforma"`,
-      };
-    }
+
+  private buildOrder(sort: 'asc' | 'desc') {
+    return sort === 'asc'
+      ? [{ add_date: 'asc' as const }, { id: 'asc' as const }]
+      : [{ add_date: 'desc' as const }, { id: 'desc' as const }];
+  }
+
+  private meta(total: number, page: number, limit: number) {
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    return {
+      totalCount: total,
+      page,
+      limit,
+      totalPages,
+      lastPage: totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
+  async listSupervision(q: ListQueryDto) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    const where = this.buildWhere(q.search, q.estado);
+    const orderBy = this.buildOrder(q.sort ?? 'desc');
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.cuadro_firma.count({ where }),
+      this.prisma.cuadro_firma.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: { estado_firma: true, empresa: true },
+      }),
+    ]);
+
     return {
       status: HttpStatus.ACCEPTED,
-      data: asignaciones,
+      data: { documentos: rows, meta: this.meta(total, page, limit) },
     };
+  }
+
+  async listByUser(userId: number, q: ListQueryDto) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    const whereDoc = this.buildWhere(q.search, q.estado);
+    const where: Prisma.cuadro_firmaWhereInput = {
+      AND: [whereDoc, { cuadro_firma_user: { some: { user_id: userId } } }],
+    };
+    const orderBy = this.buildOrder(q.sort ?? 'desc');
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.cuadro_firma.count({ where }),
+      this.prisma.cuadro_firma.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          estado_firma: true,
+          empresa: true,
+          cuadro_firma_user: {
+            where: { user_id: userId },
+            include: { user: true, responsabilidad_firma: true },
+          },
+        },
+      }),
+    ]);
+
+    const asignaciones = rows.map((r) => ({ cuadro_firma: r }));
+    return {
+      status: HttpStatus.ACCEPTED,
+      data: { asignaciones, meta: this.meta(total, page, limit) },
+    };
+  }
+
+  async statsSupervision(search?: string) {
+    const whereBase = this.buildWhere(search, undefined);
+    const estados = ['Pendiente', 'En Progreso', 'Rechazado', 'Completado'] as const;
+    const counts = await Promise.all(
+      estados.map((estado) =>
+        this.prisma.cuadro_firma.count({
+          where: { ...whereBase, estado_firma: { nombre: estado } },
+        }),
+      ),
+    );
+    const resumen: Record<string, number> = {
+      Todos: counts.reduce((acc, current) => acc + current, 0),
+    };
+    estados.forEach((estado, index) => {
+      resumen[estado] = counts[index];
+    });
+    return { status: HttpStatus.OK, data: resumen };
+  }
+
+  async statsByUser(userId: number, search?: string) {
+    const whereDoc = this.buildWhere(search, undefined);
+    const estados = ['Pendiente', 'En Progreso', 'Rechazado', 'Completado'] as const;
+    const counts = await Promise.all(
+      estados.map((estado) =>
+        this.prisma.cuadro_firma.count({
+          where: {
+            AND: [
+              whereDoc,
+              { estado_firma: { nombre: estado } },
+              { cuadro_firma_user: { some: { user_id: userId } } },
+            ],
+          },
+        }),
+      ),
+    );
+    const resumen: Record<string, number> = {
+      Todos: counts.reduce((acc, current) => acc + current, 0),
+    };
+    estados.forEach((estado, index) => {
+      resumen[estado] = counts[index];
+    });
+    return { status: HttpStatus.OK, data: resumen };
   }
 }

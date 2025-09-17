@@ -5,8 +5,8 @@ import request from 'supertest';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 
 const documentsServiceMock = {
-  getAsignacionesByUserId: jest.fn().mockResolvedValue({
-    status: HttpStatus.OK,
+  listByUser: jest.fn().mockResolvedValue({
+    status: HttpStatus.ACCEPTED,
     data: {
       asignaciones: [
         {
@@ -28,6 +28,7 @@ const documentsServiceMock = {
         totalCount: 1,
         page: 1,
         limit: 10,
+        totalPages: 1,
         lastPage: 1,
         hasNextPage: false,
         hasPrevPage: false,
@@ -53,10 +54,10 @@ const documentsServiceMock = {
       },
     ],
   }),
-  getSupervisionDocumentos: jest.fn().mockResolvedValue({
-    status: HttpStatus.OK,
+  listSupervision: jest.fn().mockResolvedValue({
+    status: HttpStatus.ACCEPTED,
     data: {
-      items: [
+      documentos: [
         {
           id: 30,
           titulo: 'Documento de Prueba 01',
@@ -79,14 +80,24 @@ const documentsServiceMock = {
           ],
         },
       ],
-      total: 1,
-      page: 1,
-      limit: 10,
+      meta: {
+        totalCount: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+        lastPage: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
     },
   }),
-  getSupervisionStats: jest.fn().mockResolvedValue({
+  statsSupervision: jest.fn().mockResolvedValue({
     status: HttpStatus.OK,
-    data: { total: 1, pendiente: 1, enProgreso: 0, rechazado: 0, completado: 0 },
+    data: { Todos: 1, Pendiente: 1, 'En Progreso': 0, Rechazado: 0, Completado: 0 },
+  }),
+  statsByUser: jest.fn().mockResolvedValue({
+    status: HttpStatus.OK,
+    data: { Todos: 1, Pendiente: 1, 'En Progreso': 0, Rechazado: 0, Completado: 0 },
   }),
   findCuadroFirma: jest.fn().mockResolvedValue({
     id: 1,
@@ -127,8 +138,8 @@ class TestDocumentsController {
   ) {}
 
   @Get('cuadro-firmas/by-user/:userId')
-  getAsignacionesByUserId(@Param('userId') userId: string, @Query() query: any) {
-    return this.documentsService.getAsignacionesByUserId(+userId, query);
+  listByUser(@Param('userId') userId: string, @Query() query: any) {
+    return this.documentsService.listByUser(+userId, query);
   }
 
   @Get('cuadro-firmas/firmantes/:id')
@@ -137,13 +148,18 @@ class TestDocumentsController {
   }
 
   @Get('cuadro-firmas/documentos/supervision')
-  getSupervision(@Query() query: any) {
-    return this.documentsService.getSupervisionDocumentos(query);
+  listSupervision(@Query() query: any) {
+    return this.documentsService.listSupervision(query);
   }
 
   @Get('cuadro-firmas/documentos/supervision/stats')
-  getSupervisionStats() {
-    return this.documentsService.getSupervisionStats();
+  statsSupervision(@Query('search') search?: string) {
+    return this.documentsService.statsSupervision(search);
+  }
+
+  @Get('cuadro-firmas/by-user/:userId/stats')
+  statsByUser(@Param('userId') userId: string, @Query('search') search?: string) {
+    return this.documentsService.statsByUser(+userId, search);
   }
 
   @Get('cuadro-firmas/:id')
@@ -201,6 +217,7 @@ describe('DocumentsController (e2e)', () => {
       totalCount: 1,
       page: 1,
       limit: 10,
+      totalPages: 1,
       lastPage: 1,
       hasNextPage: false,
       hasPrevPage: false,
@@ -222,8 +239,8 @@ describe('DocumentsController (e2e)', () => {
       .get('/documents/cuadro-firmas/documentos/supervision?page=1&limit=10')
       .expect(HttpStatus.OK);
 
-    expect(res.body.data.items[0].firmantesResumen).toBeDefined();
-    expect(res.body.data.total).toBe(1);
+    expect(res.body.data.documentos[0].firmantesResumen).toBeDefined();
+    expect(res.body.data.meta.totalCount).toBe(1);
   });
 
   it('supervision stats returns counts', async () => {
@@ -231,8 +248,17 @@ describe('DocumentsController (e2e)', () => {
       .get('/documents/cuadro-firmas/documentos/supervision/stats')
       .expect(HttpStatus.OK);
 
-    expect(res.body.data).toHaveProperty('total');
-    expect(res.body.data).toHaveProperty('pendiente');
+    expect(res.body.data).toHaveProperty('Todos');
+    expect(res.body.data).toHaveProperty('Pendiente');
+  });
+
+  it('by-user stats returns counts', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/documents/cuadro-firmas/by-user/1/stats')
+      .expect(HttpStatus.OK);
+
+    expect(res.body.data).toHaveProperty('Todos');
+    expect(res.body.data).toHaveProperty('Pendiente');
   });
 
   it('cuadro-firmas/:id returns progress and sorted firmantes with urls', async () => {
