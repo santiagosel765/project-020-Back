@@ -105,7 +105,7 @@ export class DocumentsService {
       .join('');
   }
 
-  private mapFirmantesResumen(
+    private mapFirmantesResumen(
     firmantes?: Array<{
       user?: {
         id?: number | string | null;
@@ -117,7 +117,8 @@ export class DocumentsService {
         apellido_casada?: string | null;
         url_foto?: string | null;
         urlFoto?: string | null;
-        foto_perfil?: string | null;
+        // Prisma puede traer bytes aquí. Relajamos el tipo:
+        foto_perfil?: unknown;
         nombre?: string | null;
       } | null;
       user_id?: number | null;
@@ -129,13 +130,21 @@ export class DocumentsService {
       const nombreBase = this.buildFullNameFromUser(user);
       const nombre = nombreBase || joinWithSpace(user.nombre);
       const iniciales = this.buildInitialsFromFullName(nombre);
-      const rawId = user.id ?? firmante?.user_id ?? 0;
+      const rawId = (user as any).id ?? firmante?.user_id ?? 0;
+
+      // Sanear foto: si no es string (e.g. bytes), no la exponemos como URL
+      const rawFoto =
+        (user as any).url_foto ??
+        (user as any).urlFoto ??
+        (user as any).foto_perfil ??
+        null;
+      const urlFoto = typeof rawFoto === 'string' ? rawFoto : null;
 
       return {
         id: Number(rawId),
         nombre,
         iniciales,
-        urlFoto: user.url_foto ?? user.urlFoto ?? user.foto_perfil ?? null,
+        urlFoto,
         responsabilidad: firmante?.responsabilidad_firma?.nombre ?? '',
       };
     });
