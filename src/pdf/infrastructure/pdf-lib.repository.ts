@@ -39,7 +39,7 @@ const DATE_RIGHT_MARGIN = -2; // margen derecho para la fecha (más chico = más
 
 const DATE_BG_PAD_X = 3;          // grosor lateral del fondo
 const DATE_BG_PAD_Y = 2;          // grosor vertical del fondo
-const DATE_BG_EXTRA_RIGHT = 20;   // "cola" extra hacia la derecha
+const DATE_BG_EXTRA_RIGHT = 2;   // "cola" extra hacia la derecha
 const DATE_BG_BORDER_M = 0.75;    // margen interior para no tapar la línea del borde
 
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form

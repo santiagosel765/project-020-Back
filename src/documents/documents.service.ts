@@ -40,7 +40,7 @@ import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { joinWithSpace } from 'src/common/utils/strings';
-import { Prisma } from '@prisma/client';
+import { Prisma } from 'generated/prisma';
 import { ListQueryDto } from './dto/list-query.dto';
 
 @Injectable()
