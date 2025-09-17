@@ -18,9 +18,29 @@ import { Signature } from 'src/documents/dto/sign-document.dto';
 import { formatCurrentDate } from 'src/helpers/formatDate';
 
 // Altura efectiva de la fila de firmas y padding para centrar contenido dentro de las celdas.
-const CELL_ROW_HEIGHT = 50;
+const CELL_ROW_HEIGHT = 80;   // antes 50 — pon el alto real aproximado de TU fila
 const PADDING_X = 2;
-const PADDING_Y = 2;
+const PADDING_Y = 6;
+
+// Nuevas: límites duros de la firma y ajuste vertical fino
+const SIGNATURE_MAX_W = 140;  // ancho máx de la firma en pt
+const SIGNATURE_MAX_H = 22;   // alto máx de la firma en pt (evita que “baje” a la siguiente fila)
+const ROW_Y_OFFSET   = -6;    // desplaza todo el bloque de la fila unos pt (- sube / + baja)
+
+const SIG_PAD_X = 2;           // padding para limpiar justo alrededor de la firma
+const SIG_PAD_Y = 1;
+
+const DATE_ALIGN: 'left' | 'center' | 'right' = 'right'; // alinear fecha
+const DRAW_DATE_BACKGROUND = true; // pon false si no quieres ningún fondo
+
+const SIG_Y_NUDGE   = 3;   // + sube la firma unos pt
+const DATE_Y_NUDGE  = 6;   // + sube la fecha lo mismo que la firma
+const DATE_RIGHT_MARGIN = -2; // margen derecho para la fecha (más chico = más a la derecha)
+
+const DATE_BG_PAD_X = 3;          // grosor lateral del fondo
+const DATE_BG_PAD_Y = 2;          // grosor vertical del fondo
+const DATE_BG_EXTRA_RIGHT = 20;   // "cola" extra hacia la derecha
+const DATE_BG_BORDER_M = 0.75;    // margen interior para no tapar la línea del borde
 
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form
 @Injectable()
@@ -165,7 +185,7 @@ export class PdfLibRepository implements PdfRepository {
 
     // res.y representa el baseline detectado en la fila; fijamos una altura constante para
     // limpiar y centrar firma/fecha sin invadir filas vecinas.
-    const rowBottomY = res.y - CELL_ROW_HEIGHT / 2;
+    const rowBottomY = res.y - CELL_ROW_HEIGHT / 2 + ROW_Y_OFFSET;
 
     if (columns && signatureImage) {
       const rawWidth = signatureImage.width ?? 0;
@@ -175,25 +195,23 @@ export class PdfLibRepository implements PdfRepository {
         w: columns.firma.w,
         h: CELL_ROW_HEIGHT,
       };
-      const maxW = Math.max(0, firmaRect.w - PADDING_X * 2);
-      const maxH = Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2);
-      const scale =
-        rawWidth > 0 && rawHeight > 0
-          ? Math.min(maxW / rawWidth, maxH / rawHeight, 1)
-          : 1;
+      const maxW = Math.min(Math.max(0, firmaRect.w - PADDING_X * 2), SIGNATURE_MAX_W);
+      const maxH = Math.min(Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2), SIGNATURE_MAX_H);
+      const scale = rawWidth > 0 && rawHeight > 0 ? Math.min(maxW / rawWidth, maxH / rawHeight, 1) : 1;
+
       appliedScale = scale;
       signatureWidth = rawWidth * scale;
       signatureHeight = rawHeight * scale;
       const drawX = firmaRect.x + (firmaRect.w - signatureWidth) / 2;
       const drawY = rowBottomY + (CELL_ROW_HEIGHT - signatureHeight) / 2;
       signatureX = drawX;
-      signatureY = drawY;
+      signatureY = drawY + SIG_Y_NUDGE; 
 
       page.drawRectangle({
-        x: firmaRect.x,
-        y: rowBottomY,
-        width: firmaRect.w,
-        height: CELL_ROW_HEIGHT,
+        x: signatureX - SIG_PAD_X,
+        y: signatureY - SIG_PAD_Y,
+        width: signatureWidth + SIG_PAD_X * 2,
+        height: signatureHeight + SIG_PAD_Y * 2,
         color: rgb(1, 1, 1),
         borderColor: rgb(1, 1, 1),
         borderWidth: 0,
@@ -201,8 +219,8 @@ export class PdfLibRepository implements PdfRepository {
     } else if (signatureImage && signatureShouldDraw) {
       const rawWidth = signatureImage.width ?? 0;
       const rawHeight = signatureImage.height ?? 0;
-      const maxW = 90;
-      const maxH = Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2);
+      const maxW = Math.min(90, SIGNATURE_MAX_W);
+      const maxH = Math.min(Math.max(0, CELL_ROW_HEIGHT - PADDING_Y * 2), SIGNATURE_MAX_H);
       const scale =
         rawWidth > 0 && rawHeight > 0
           ? Math.min(maxW / rawWidth, maxH / rawHeight, 1)
@@ -243,28 +261,45 @@ export class PdfLibRepository implements PdfRepository {
 
       const dateX = columns ? columns.fecha.x : res.x;
       const dateWidth = columns ? columns.fecha.w : 80;
-      const dateRectHeight = CELL_ROW_HEIGHT;
-      const dateRectY = rowBottomY;
-      const textX = dateX + PADDING_X;
+
       const maxWidth = Math.max(dateWidth - PADDING_X * 2, 0);
-      const dateValue = this.truncateText(
-        font,
-        formatCurrentDate(),
-        fontSize,
-        maxWidth,
-      );
+      const dateValue = this.truncateText(font, formatCurrentDate(), fontSize, maxWidth);
 
-      const textY = rowBottomY + (CELL_ROW_HEIGHT - fontSize) / 2;
+      // Colocación vertical centrada en la fila
+      const textY = rowBottomY + (CELL_ROW_HEIGHT - fontSize) / 2 + DATE_Y_NUDGE;
 
-      page.drawRectangle({
-        x: dateX,
-        y: dateRectY,
-        width: dateWidth,
-        height: dateRectHeight,
-        color: rgb(1, 1, 1),
-        borderColor: rgb(1, 1, 1),
-        borderWidth: 0,
-      });
+      // Alineación horizontal
+      let textX = dateX + PADDING_X; // por si usas 'left'
+      if (DATE_ALIGN === 'center') {
+        const w = font.widthOfTextAtSize(dateValue, fontSize);
+        textX = dateX + (dateWidth - w) / 2;
+      } else if (DATE_ALIGN === 'right') {
+        const w = font.widthOfTextAtSize(dateValue, fontSize);
+        textX = dateX + dateWidth - DATE_RIGHT_MARGIN - w; 
+      }
+
+      // Fondo mínimo (o ninguno)
+      if (DRAW_DATE_BACKGROUND) {
+        const tw = font.widthOfTextAtSize(dateValue, fontSize);
+
+        const bgX = Math.max(dateX + DATE_BG_BORDER_M, textX - DATE_BG_PAD_X);
+        const bgW = Math.min(
+          dateWidth - DATE_BG_BORDER_M * 2,
+          tw + DATE_BG_PAD_X * 2 + DATE_BG_EXTRA_RIGHT
+        );
+        const bgY = textY - DATE_BG_PAD_Y;
+        const bgH = fontSize + DATE_BG_PAD_Y * 2;
+
+        page.drawRectangle({
+          x: bgX,
+          y: bgY,
+          width: bgW,
+          height: bgH,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(1, 1, 1),
+          borderWidth: 0,
+        });
+      }
 
       if (dateValue) {
         page.drawText(dateValue, {
@@ -275,6 +310,7 @@ export class PdfLibRepository implements PdfRepository {
           color: rgb(0, 0, 0),
         });
       }
+
     } else {
       this.logger.log('[insertSignature] escritura de fecha omitida');
     }
