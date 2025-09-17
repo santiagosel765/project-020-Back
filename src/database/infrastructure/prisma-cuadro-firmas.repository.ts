@@ -27,6 +27,7 @@ import { UpdateEstadoAsignacionDto } from 'src/documents/dto/update-estado-asign
 import { Asignacion } from '../domain/interfaces/cuadro-firmas.interface';
 import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { joinWithSpace } from 'src/common/utils/strings';
 
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
@@ -440,12 +441,35 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
         select: {
           cuadro_firma: {
             select: {
+              id: true,
               titulo: true,
               descripcion: true,
               codigo: true,
               version: true,
               nombre_pdf: true,
               add_date: true,
+              cuadro_firma_user: {
+                select: {
+                  estaFirmado: true,
+                  user: {
+                    select: {
+                      id: true,
+                      primer_nombre: true,
+                      segundo_name: true,
+                      tercer_nombre: true,
+                      primer_apellido: true,
+                      segundo_apellido: true,
+                      apellido_casada: true,
+                      url_foto: true,
+                    },
+                  },
+                  responsabilidad_firma: {
+                    select: {
+                      nombre: true,
+                    },
+                  },
+                },
+              },
               estado_firma: {
                 select: {
                   id: true,
@@ -474,12 +498,26 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
-      const mapped = result.map((item) => {
+      const buildFullName = (u: any) =>
+        joinWithSpace(
+          u.primer_nombre,
+          u.segundo_name,
+          u.tercer_nombre,
+          u.primer_apellido,
+          u.segundo_apellido,
+          u.apellido_casada,
+        );
+
+      const asignaciones = result.map((item) => {
+        const { user: usuarioAsignado, cuadro_firma } = item;
+        const { user: usuarioCreador, cuadro_firma_user, ...cuadroFirmaRest } =
+          cuadro_firma;
+
         // Calcula días solo si el estado no es Rechazado ni Finalizado
         let diasTranscurridos: number | undefined = undefined;
-        const estado = item.cuadro_firma.estado_firma?.nombre?.toLowerCase();
+        const estado = cuadroFirmaRest.estado_firma?.nombre?.toLowerCase();
         if (estado !== 'rechazado' && estado !== 'finalizado') {
-          const fechaCreacion = item.cuadro_firma.add_date;
+          const fechaCreacion = cuadroFirmaRest.add_date;
           const hoy = new Date();
           diasTranscurridos = Math.floor(
             (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
@@ -487,21 +525,28 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           );
         }
 
+        const firmantesResumen = (cuadro_firma_user ?? []).map((x: any) => ({
+          id: x.user.id,
+          nombre: buildFullName(x.user),
+          urlFoto: x.user.url_foto ?? null,
+          responsabilidad: x.responsabilidad_firma?.nombre ?? '',
+        }));
+
         return {
           ...item,
-          usuarioAsignado: item.user,
-          usuarioCreador: item.cuadro_firma.user,
+          usuarioAsignado,
+          usuarioCreador,
           user: undefined,
           cuadro_firma: {
-            ...item.cuadro_firma,
-            user: undefined,
+            ...cuadroFirmaRest,
             diasTranscurridos,
+            firmantesResumen,
           },
         };
       });
 
       return {
-        asignaciones: mapped as Asignacion[],
+        asignaciones: asignaciones as Asignacion[],
         meta: {
           totalPages,
           totalCount,
