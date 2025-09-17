@@ -39,10 +39,16 @@ import {
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { joinWithSpace } from 'src/common/utils/strings';
 
 @Injectable()
 export class DocumentsService {
   logger: Logger = new Logger(DocumentsService.name);
+
+  private readonly responsabilidadCache = new Map<
+    'Elabora' | 'Revisa' | 'Aprueba' | 'Enterado',
+    number
+  >();
 
   constructor(
     @Inject(CUADRO_FIRMAS_REPOSITORY)
@@ -65,6 +71,172 @@ export class DocumentsService {
     }
     throw new HttpException(msg, HttpStatus.INTERNAL_SERVER_ERROR);
   };
+
+  private buildFullNameFromUser(user: {
+    primer_nombre?: string | null;
+    segundo_name?: string | null;
+    tercer_nombre?: string | null;
+    primer_apellido?: string | null;
+    segundo_apellido?: string | null;
+    apellido_casada?: string | null;
+  }): string {
+    return joinWithSpace(
+      user.primer_nombre,
+      user.segundo_name,
+      user.tercer_nombre,
+      user.primer_apellido,
+      user.segundo_apellido,
+      user.apellido_casada,
+    );
+  }
+
+  private async getResponsabilidadIdByNombre(
+    nombre: 'Elabora' | 'Revisa' | 'Aprueba' | 'Enterado',
+  ): Promise<number> {
+    if (this.responsabilidadCache.has(nombre)) {
+      return this.responsabilidadCache.get(nombre)!;
+    }
+
+    const responsabilidad = await this.prisma.responsabilidad_firma.findFirst({
+      where: { nombre },
+      select: { id: true },
+    });
+
+    if (!responsabilidad) {
+      throw new HttpException(
+        `Responsabilidad "${nombre}" no configurada`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.responsabilidadCache.set(nombre, responsabilidad.id);
+    return responsabilidad.id;
+  }
+
+  private async hydrateFirmanteByUserId(
+    firmante?: Partial<FirmanteUserDto>,
+    rol?: 'Elabora' | 'Revisa' | 'Aprueba' | 'Enterado',
+  ): Promise<FirmanteUserDto | undefined> {
+    if (!firmante) {
+      return undefined;
+    }
+
+    const hasFullData =
+      Boolean(firmante.nombre) &&
+      Boolean(firmante.puesto) &&
+      Boolean(firmante.gerencia) &&
+      firmante.responsabilidadId !== undefined &&
+      firmante.responsabilidadId !== null;
+
+    if (hasFullData) {
+      return firmante as FirmanteUserDto;
+    }
+
+    if (!firmante.userId) {
+      const rolLabel = rol ?? 'desconocido';
+      throw new HttpException(
+        `Responsable sin userId en rol ${rolLabel}`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: firmante.userId },
+      select: {
+        id: true,
+        primer_nombre: true,
+        segundo_name: true,
+        tercer_nombre: true,
+        primer_apellido: true,
+        segundo_apellido: true,
+        apellido_casada: true,
+        posicion: { select: { nombre: true } },
+        gerencia: { select: { nombre: true } },
+      },
+    });
+
+    if (!user) {
+      throw new HttpException(
+        `Usuario ${firmante.userId} no existe`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const nombre = this.buildFullNameFromUser(user);
+    const puesto = user.posicion?.nombre ?? '';
+    const gerencia = user.gerencia?.nombre ?? '';
+
+    let responsabilidadId = firmante.responsabilidadId;
+    if (
+      (responsabilidadId === undefined || responsabilidadId === null) &&
+      rol
+    ) {
+      responsabilidadId = await this.getResponsabilidadIdByNombre(rol);
+    }
+
+    if (responsabilidadId === undefined || responsabilidadId === null) {
+      const rolLabel = rol ?? 'desconocido';
+      throw new HttpException(
+        `Responsabilidad "${rolLabel}" no configurada`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return {
+      userId: firmante.userId,
+      nombre,
+      puesto,
+      gerencia,
+      responsabilidadId,
+    };
+  }
+
+  private async hydrateResponsables(
+    input: ResponsablesFirmaDto,
+  ): Promise<ResponsablesFirmaDto> {
+    const elabora = await this.hydrateFirmanteByUserId(
+      input?.elabora,
+      'Elabora',
+    );
+
+    const revisaHydrated = await Promise.all(
+      (input?.revisa ?? []).map((firmante) =>
+        this.hydrateFirmanteByUserId(firmante, 'Revisa'),
+      ),
+    );
+
+    const apruebaHydrated = await Promise.all(
+      (input?.aprueba ?? []).map((firmante) =>
+        this.hydrateFirmanteByUserId(firmante, 'Aprueba'),
+      ),
+    );
+
+    const revisa = revisaHydrated.filter(
+      (firmante): firmante is FirmanteUserDto => Boolean(firmante),
+    );
+    const aprueba = apruebaHydrated.filter(
+      (firmante): firmante is FirmanteUserDto => Boolean(firmante),
+    );
+
+    this.logger.debug(
+      `Hydrated responsables => elabora:${elabora ? 1 : 0}, revisa:${
+        revisa.length
+      }, aprueba:${aprueba.length}`,
+    );
+
+    const result = {} as ResponsablesFirmaDto;
+    if (elabora) {
+      result.elabora = elabora;
+    }
+    if (revisa.length > 0) {
+      result.revisa = revisa;
+    }
+    if (aprueba.length > 0) {
+      result.aprueba = aprueba;
+    }
+
+    return result;
+  }
 
   async guardarDocumento(file: Buffer) {
     const timestamp: number = Date.now();
@@ -360,9 +532,13 @@ export class DocumentsService {
     responsables: ResponsablesFirmaDto,
     documentoPDF: Buffer,
   ): Promise<cuadro_firma> {
+    const responsablesHydrated = await this.hydrateResponsables(responsables);
     try {
       const { pdfContent, plantilladId, formattedHtml, fileName } =
-        await this.generarCuadroFirmas(createCuadroFirmaDto, responsables);
+        await this.generarCuadroFirmas(
+          createCuadroFirmaDto,
+          responsablesHydrated,
+        );
 
       // ? Subir cuadro de firmas a S3
       const { fileKey: cuadroFirmasKey } = await this.awsService.uploadFile(
@@ -382,7 +558,7 @@ export class DocumentsService {
       const cuadroFirmaDB =
         await this.cuadroFirmasRepository.guardarCuadroFirmas(
           createCuadroFirmaDto,
-          responsables,
+          responsablesHydrated,
           documentoPDF,
           null,
           plantilladId,
@@ -401,7 +577,7 @@ export class DocumentsService {
       }
 
       await this.asignarResponsablesCuadroFirmas(
-        responsables,
+        responsablesHydrated,
         cuadroFirmaDB.id,
       );
 
@@ -658,6 +834,7 @@ export class DocumentsService {
     updateCuadroFirmaDto: UpdateCuadroFirmaDto,
     responsables: ResponsablesFirmaDto,
   ) {
+    const responsablesHydrated = await this.hydrateResponsables(responsables);
     try {
       const cuadroFirmaDB = await this.findCuadroFirma(id);
 
@@ -675,14 +852,14 @@ export class DocumentsService {
 
       const { pdfContent } = await this.generarCuadroFirmas(
         createCuadroFirmaDto,
-        responsables,
+        responsablesHydrated,
       );
 
       const updatedCuadroFirmas =
         await this.cuadroFirmasRepository.updateCuadroFirmas(
           id,
           updateCuadroFirmaDto,
-          responsables,
+          responsablesHydrated,
           null,
           +createCuadroFirmaDto.empresa_id,
         );
