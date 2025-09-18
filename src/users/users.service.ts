@@ -238,15 +238,10 @@ export class UsersService {
     const roles = assignments
       .map((assignment) => assignment.rol)
       .filter(
-        (
-          rol,
-        ): rol is {
-          id: number;
-          nombre: string | null;
-          activo: boolean | null | undefined;
-        } => !!rol && rol.activo !== false,
+        (rol): rol is { id: number; nombre: string; activo: boolean | null } =>
+          !!rol && rol.activo !== false,
       )
-      .map((rol) => ({ id: rol.id, nombre: rol.nombre ?? '' }));
+      .map((rol) => ({ id: rol.id, nombre: rol.nombre }));
 
     return { roles };
   }
@@ -531,15 +526,11 @@ export class UsersService {
     const roles = (rol_usuario ?? [])
       .map((assignment) => assignment.rol)
       .filter(
-        (
-          rol,
-        ): rol is {
-          id: number;
-          nombre: string | null;
-          activo: boolean | null | undefined;
-        } => !!rol && rol.activo !== false,
+        (rol): rol is { id: number; nombre: string; activo: boolean | null } =>
+          !!rol && rol.activo !== false,
       )
-      .map((rol) => ({ id: rol.id, nombre: rol.nombre ?? '' }));
+      .map((rol) => ({ id: rol.id, nombre: rol.nombre }));
+
     const posicionData = posicion ?? null;
     const gerenciaData = gerencia ?? null;
     return {
