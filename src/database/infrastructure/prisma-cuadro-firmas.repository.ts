@@ -28,6 +28,7 @@ import { Asignacion } from '../domain/interfaces/cuadro-firmas.interface';
 import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { joinWithSpace } from 'src/common/utils/strings';
+import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
 
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
@@ -277,6 +278,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             segundo_apellido: true,
             apellido_casada: true,
             correo_institucional: true,
+            url_foto: true,
           },
         },
       },
@@ -308,6 +310,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             segundo_apellido: true,
             apellido_casada: true,
             correo_institucional: true,
+            url_foto: true,
           },
         },
         responsabilidad_firma: {
@@ -349,6 +352,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               segundo_apellido: true,
               apellido_casada: true,
               correo_institucional: true,
+              url_foto: true,
             },
           },
           estado_firma: {
@@ -529,7 +533,10 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           (cuadro_firma_user ?? []).map(async (x: any) => ({
             id: x.user.id,
             nombre: buildFullName(x.user),
-            urlFoto: await this.resolvePhotoUrl(x.user?.url_foto ?? null),
+            urlFoto: await resolvePhotoUrl(
+              this.awsService,
+              x.user?.url_foto ?? null,
+            ),
             responsabilidad: x.responsabilidad_firma?.nombre ?? '',
           })),
         );
@@ -719,11 +726,4 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     }
   }
 
-  private async resolvePhotoUrl(raw?: string | null) {
-    if (!raw) return null;
-    if (/^https?:\/\//i.test(raw)) {
-      return raw;
-    }
-    return (await this.awsService.getPresignedGetUrl(raw)) ?? null;
-  }
 }
