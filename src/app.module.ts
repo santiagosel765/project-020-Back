@@ -13,6 +13,8 @@ import { AwsModule } from './aws/aws.module';
 import { RolesModule } from './roles/roles.module';
 import { PaginasModule } from './paginas/paginas.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { PosicionesModule } from './posiciones/posiciones.module';
+import { GerenciasModule } from './gerencias/gerencias.module';
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
     AiModule,
     PrismaModule,
     AwsModule,
+    PosicionesModule,
+    GerenciasModule,
   ],
   controllers: [AppController],
   providers: [

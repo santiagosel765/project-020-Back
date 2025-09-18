@@ -18,6 +18,11 @@ export class RolesService {
     return this.prisma.rol.findMany({
       where: all ? undefined : { activo: true },
       orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        nombre: true,
+        activo: true,
+      },
     });
   }
 
@@ -138,28 +143,30 @@ export class RolesService {
       select: { rol_id: true },
     });
 
-    const roleIds = roles.map(r => r.rol_id);
+    const roleIds = roles.map((r) => r.rol_id);
     if (roleIds.length === 0) return [];
 
     const pages = await this.prisma.pagina.findMany({
       where: {
         activo: true,
-        pagina_rol: { some: { rol_id: { in: roleIds }, rol: { activo: true } } },
+        pagina_rol: {
+          some: { rol_id: { in: roleIds }, rol: { activo: true } },
+        },
       },
       select: {
         id: true,
         nombre: true,
         url: true,
         icon: true,
-        order: true,        // <- si usaste @map("display_order")
+        order: true, // <- si usaste @map("display_order")
       },
       orderBy: [
-        { order: 'asc' },   // primero por orden custom
-        { id: 'asc' },      // luego por id
+        { order: 'asc' }, // primero por orden custom
+        { id: 'asc' }, // luego por id
       ],
     });
 
-    return pages.map(p => ({
+    return pages.map((p) => ({
       id: p.id,
       code: p.nombre,
       name: p.nombre,
