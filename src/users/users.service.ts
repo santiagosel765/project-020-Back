@@ -37,7 +37,30 @@ const userSummarySelect = {
   add_date: true,
   updated_at: true,
   url_foto: true,
-} as const;
+  rol_usuario: {
+    select: {
+      rol: {
+        select: {
+          id: true,
+          nombre: true,
+          activo: true,
+        },
+      },
+    },
+  },
+  posicion: {
+    select: {
+      id: true,
+      nombre: true,
+    },
+  },
+  gerencia: {
+    select: {
+      id: true,
+      nombre: true,
+    },
+  },
+} satisfies Prisma.userSelect;
 
 type UserSummary = Prisma.userGetPayload<{ select: typeof userSummarySelect }>;
 
@@ -54,7 +77,11 @@ export class UsersService {
     private awsService: AWSService,
   ) {}
 
-  async create(createUserDto: CreateUserDto, file?: Express.Multer.File) {
+  async create(
+    createUserDto: CreateUserDto,
+    file?: Express.Multer.File,
+    roleIds?: number[],
+  ) {
     const { password, correo_institucional, codigo_empleado, ...rest } =
       createUserDto;
     if (!password)
@@ -89,6 +116,10 @@ export class UsersService {
       });
     }
 
+    if (roleIds !== undefined) {
+      await this.setUserRoles(created.id, roleIds);
+    }
+
     const finalUser = await this.prisma.user.findUnique({
       where: { id: created.id },
       select: userSummarySelect,
@@ -97,9 +128,9 @@ export class UsersService {
     return this.mapUser(finalUser!);
   }
 
-  async findAll() {
+  async findAll(includeAll = false) {
     const users = await this.prisma.user.findMany({
-      where: { activo: true },
+      where: includeAll ? undefined : { activo: true },
       orderBy: { id: 'asc' },
       select: userSummarySelect,
     });
@@ -121,6 +152,7 @@ export class UsersService {
     id: number,
     updateUserDto: UpdateUserDto,
     file?: Express.Multer.File,
+    roleIds?: number[],
   ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
@@ -168,12 +200,69 @@ export class UsersService {
       data,
     });
 
+    if (roleIds !== undefined) {
+      await this.setUserRoles(id, roleIds);
+    }
+
     const finalUser = await this.prisma.user.findUnique({
       where: { id },
       select: userSummarySelect,
     });
 
     return this.mapUser(finalUser!);
+  }
+
+  async getUserRoles(id: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, activo: true },
+    });
+    if (!user || user.activo === false) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const assignments = await this.prisma.rol_usuario.findMany({
+      where: { user_id: id },
+      select: {
+        rol: {
+          select: {
+            id: true,
+            nombre: true,
+            activo: true,
+          },
+        },
+      },
+      orderBy: { rol_id: 'asc' },
+    });
+
+    const roles = assignments
+      .map((assignment) => assignment.rol)
+      .filter(
+        (
+          rol,
+        ): rol is {
+          id: number;
+          nombre: string | null;
+          activo: boolean | null | undefined;
+        } => !!rol && rol.activo !== false,
+      )
+      .map((rol) => ({ id: rol.id, nombre: rol.nombre ?? '' }));
+
+    return { roles };
+  }
+
+  async replaceUserRoles(id: number, roleIds: number[]) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, activo: true },
+    });
+    if (!user || user.activo === false) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    await this.setUserRoles(id, roleIds);
+
+    return this.getUserRoles(id);
   }
 
   async changePassword(
@@ -393,7 +482,9 @@ export class UsersService {
   }
 
   private resolveProfileExtension(file: Express.Multer.File) {
-    const ext = extname(file.originalname ?? '').replace('.', '').toLowerCase();
+    const ext = extname(file.originalname ?? '')
+      .replace('.', '')
+      .toLowerCase();
     if (ext) return ext;
     const [, subtype] = file.mimetype.split('/');
     return subtype || 'png';
@@ -435,12 +526,62 @@ export class UsersService {
   }
 
   private async mapUser(user: UserSummary) {
-    const { url_foto, ...rest } = user;
+    const { url_foto, rol_usuario, posicion, gerencia, ...rest } = user;
     const urlFoto = await this.resolvePhotoUrl(url_foto ?? undefined);
+    const roles = (rol_usuario ?? [])
+      .map((assignment) => assignment.rol)
+      .filter(
+        (
+          rol,
+        ): rol is {
+          id: number;
+          nombre: string | null;
+          activo: boolean | null | undefined;
+        } => !!rol && rol.activo !== false,
+      )
+      .map((rol) => ({ id: rol.id, nombre: rol.nombre ?? '' }));
+    const posicionData = posicion ?? null;
+    const gerenciaData = gerencia ?? null;
     return {
       ...rest,
+      roles,
+      posicionId: posicionData?.id ?? null,
+      posicionNombre: posicionData?.nombre ?? null,
+      gerenciaId: gerenciaData?.id ?? null,
+      gerenciaNombre: gerenciaData?.nombre ?? null,
       urlFoto,
     };
+  }
+
+  async setUserRoles(userId: number, roleIds: number[]) {
+    const normalized = Array.from(
+      new Set(
+        (roleIds ?? [])
+          .map((roleId) => Number(roleId))
+          .filter((roleId) => Number.isInteger(roleId) && roleId > 0),
+      ),
+    );
+
+    if (normalized.length > 0) {
+      const roles = await this.prisma.rol.findMany({
+        where: { id: { in: normalized }, activo: true },
+        select: { id: true },
+      });
+      if (roles.length !== normalized.length) {
+        throw new BadRequestException(
+          'Uno o más roles no existen o están inactivos',
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rol_usuario.deleteMany({ where: { user_id: userId } });
+      if (normalized.length > 0) {
+        await tx.rol_usuario.createMany({
+          data: normalized.map((rolId) => ({ user_id: userId, rol_id: rolId })),
+        });
+      }
+    });
   }
 
   private async actorIsAdmin(actor?: PasswordActor) {
