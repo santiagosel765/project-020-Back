@@ -2,17 +2,48 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaginaDto } from './dto/create-pagina.dto';
 import { UpdatePaginaDto } from './dto/update-pagina.dto';
-import { Prisma } from 'generated/prisma'; 
+import { Prisma } from 'generated/prisma';
+import { PaginationDto } from 'src/shared/dto';
+import { buildPageMeta } from 'src/shared/utils/pagination';
 
 @Injectable()
 export class PaginasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(all = false) {
-    return this.prisma.pagina.findMany({
-      where: all ? undefined : { activo: true },
-      orderBy: { id: 'asc' },
-    });
+  async findAll(all = false, pagination?: PaginationDto) {
+    const hasPagination =
+      pagination?.page !== undefined || pagination?.limit !== undefined;
+
+    const where = all ? undefined : { activo: true };
+
+    if (!hasPagination) {
+      return this.prisma.pagina.findMany({
+        where,
+        orderBy: { id: 'asc' },
+      });
+    }
+
+    const rawPage = pagination?.page ?? 1;
+    const rawLimit = pagination?.limit ?? 10;
+    const page = Math.max(1, Number(rawPage) || 1);
+    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 10));
+    const sort: 'asc' | 'desc' = pagination?.sort === 'asc' ? 'asc' : 'desc';
+    const skip = (page - 1) * limit;
+
+    const [total, paginas] = await this.prisma.$transaction([
+      this.prisma.pagina.count({ where }),
+      this.prisma.pagina.findMany({
+        where,
+        orderBy: { id: sort },
+        take: limit,
+        skip,
+      }),
+    ]);
+
+    return {
+      items: paginas,
+      meta: buildPageMeta(total, page, limit),
+    };
   }
 
   async create(dto: CreatePaginaDto) {

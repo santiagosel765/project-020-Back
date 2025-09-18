@@ -43,6 +43,7 @@ import { joinWithSpace } from 'src/common/utils/strings';
 import { Prisma } from 'generated/prisma';
 import { ListQueryDto } from './dto/list-query.dto';
 import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
+import { buildPageMeta } from 'src/shared/utils/pagination';
 
 @Injectable()
 export class DocumentsService {
@@ -1135,15 +1136,18 @@ export class DocumentsService {
   }
 
   private meta(total: number, page: number, limit: number) {
-    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const base = buildPageMeta(total, page, limit);
+    const { total: totalItems, pages, page: currentPage, limit: pageSize } = base;
+
     return {
-      totalCount: total,
-      page,
-      limit,
-      totalPages,
-      lastPage: totalPages,
-      hasNextPage: page < totalPages,
-      hasPrevPage: page > 1,
+      ...base,
+      totalCount: totalItems,
+      totalPages: pages,
+      lastPage: pages,
+      hasNextPage: currentPage < pages,
+      hasPrevPage: currentPage > 1,
+      page: currentPage,
+      limit: pageSize,
     };
   }
 
@@ -1181,9 +1185,11 @@ export class DocumentsService {
       };
     }));
 
+    const meta = this.meta(total, page, limit);
+
     return {
       status: HttpStatus.ACCEPTED,
-      data: { documentos, meta: this.meta(total, page, limit) },
+      data: { documentos, items: documentos, meta },
     };
   }
 
@@ -1225,9 +1231,10 @@ export class DocumentsService {
         },
       };
     }));
+    const meta = this.meta(total, page, limit);
     return {
       status: HttpStatus.ACCEPTED,
-      data: { asignaciones, meta: this.meta(total, page, limit) },
+      data: { asignaciones, items: asignaciones, meta },
     };
   }
 
