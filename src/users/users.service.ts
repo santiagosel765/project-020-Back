@@ -15,10 +15,11 @@ import { RolesService } from '../roles/roles.service';
 import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
 import { UpdateSignatureDto } from './dto/update-signature.dto';
-import { MeResponseDto } from 'src/shared/dto';
+import { MeResponseDto, PaginationDto } from 'src/shared/dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Prisma } from 'generated/prisma';
 import { extname } from 'path';
+import { buildPageMeta } from 'src/shared/utils/pagination';
 
 const userSummarySelect = {
   id: true,
@@ -128,13 +129,45 @@ export class UsersService {
     return this.mapUser(finalUser!);
   }
 
-  async findAll(includeAll = false) {
-    const users = await this.prisma.user.findMany({
-      where: includeAll ? undefined : { activo: true },
-      orderBy: { id: 'asc' },
-      select: userSummarySelect,
-    });
-    return Promise.all(users.map((user) => this.mapUser(user)));
+  async findAll(includeAll = false, pagination?: PaginationDto) {
+    const hasPagination =
+      pagination?.page !== undefined || pagination?.limit !== undefined;
+
+    const where = includeAll ? undefined : { activo: true };
+
+    if (!hasPagination) {
+      const users = await this.prisma.user.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        select: userSummarySelect,
+      });
+      return Promise.all(users.map((user) => this.mapUser(user)));
+    }
+
+    const rawPage = pagination?.page ?? 1;
+    const rawLimit = pagination?.limit ?? 10;
+    const page = Math.max(1, Number(rawPage) || 1);
+    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 10));
+    const sort: 'asc' | 'desc' = pagination?.sort === 'asc' ? 'asc' : 'desc';
+    const skip = (page - 1) * limit;
+
+    const [total, users] = await this.prisma.$transaction([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        orderBy: { id: sort },
+        take: limit,
+        skip,
+        select: userSummarySelect,
+      }),
+    ]);
+
+    const mapped = await Promise.all(users.map((user) => this.mapUser(user)));
+
+    return {
+      items: mapped,
+      meta: buildPageMeta(total, page, limit),
+    };
   }
 
   async findOne(id: number) {

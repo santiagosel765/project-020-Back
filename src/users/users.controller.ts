@@ -21,7 +21,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateSignatureDto } from './dto/update-signature.dto';
-import { MeResponseDto } from 'src/shared/dto';
+import { MeResponseDto, PaginationDto } from 'src/shared/dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -41,8 +41,8 @@ export class UsersController {
   }
 
   @Get()
-  findAll(@Query('all') all = '0') {
-    return this.usersService.findAll(all === '1');
+  findAll(@Query() pagination: PaginationDto, @Query('all') all = '0') {
+    return this.usersService.findAll(all === '1', pagination);
   }
 
   @Get('me')

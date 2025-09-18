@@ -16,6 +16,7 @@ import { RolesService } from './roles.service';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PaginationDto } from 'src/shared/dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller({ path: 'roles', version: '1' })
@@ -23,8 +24,8 @@ export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Get()
-  findAll(@Query('all') all = '0') {
-    return this.rolesService.findAll(all === '1');
+  findAll(@Query() pagination: PaginationDto, @Query('all') all = '0') {
+    return this.rolesService.findAll(all === '1', pagination);
   }
 
   @Post()

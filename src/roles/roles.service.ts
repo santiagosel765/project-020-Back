@@ -8,22 +8,56 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from 'generated/prisma';
 import { CreateRolDto } from './dto/create-rol.dto';
 import { UpdateRolDto } from './dto/update-rol.dto';
-import { PageDto } from '../shared/dto';
+import { PageDto, PaginationDto } from '../shared/dto';
+import { buildPageMeta } from 'src/shared/utils/pagination';
 
 @Injectable()
 export class RolesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(all = false) {
-    return this.prisma.rol.findMany({
-      where: all ? undefined : { activo: true },
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        nombre: true,
-        activo: true,
-      },
-    });
+  async findAll(all = false, pagination?: PaginationDto) {
+    const hasPagination =
+      pagination?.page !== undefined || pagination?.limit !== undefined;
+
+    const where = all ? undefined : { activo: true };
+    const select = {
+      id: true,
+      nombre: true,
+      descripcion: true,
+      activo: true,
+      add_date: true,
+    } as const;
+
+    if (!hasPagination) {
+      return this.prisma.rol.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        select,
+      });
+    }
+
+    const rawPage = pagination?.page ?? 1;
+    const rawLimit = pagination?.limit ?? 10;
+    const page = Math.max(1, Number(rawPage) || 1);
+    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 10));
+    const sort: 'asc' | 'desc' = pagination?.sort === 'asc' ? 'asc' : 'desc';
+    const skip = (page - 1) * limit;
+
+    const [total, roles] = await this.prisma.$transaction([
+      this.prisma.rol.count({ where }),
+      this.prisma.rol.findMany({
+        where,
+        orderBy: { id: sort },
+        take: limit,
+        skip,
+        select,
+      }),
+    ]);
+
+    return {
+      items: roles,
+      meta: buildPageMeta(total, page, limit),
+    };
   }
 
   async create(dto: CreateRolDto) {

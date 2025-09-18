@@ -14,6 +14,7 @@ import { PaginasService } from './paginas.service';
 import { CreatePaginaDto } from './dto/create-pagina.dto';
 import { UpdatePaginaDto } from './dto/update-pagina.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PaginationDto } from 'src/shared/dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller({ path: 'paginas', version: '1' })
@@ -21,8 +22,8 @@ export class PaginasController {
   constructor(private readonly paginasService: PaginasService) {}
 
   @Get()
-  findAll(@Query('all') all = '0') {
-    return this.paginasService.findAll(all === '1');
+  findAll(@Query() pagination: PaginationDto, @Query('all') all = '0') {
+    return this.paginasService.findAll(all === '1', pagination);
   }
 
   @Post()
