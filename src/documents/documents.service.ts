@@ -42,6 +42,7 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { joinWithSpace } from 'src/common/utils/strings';
 import { Prisma } from 'generated/prisma';
 import { ListQueryDto } from './dto/list-query.dto';
+import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
 
 @Injectable()
 export class DocumentsService {
@@ -155,18 +156,27 @@ export class DocumentsService {
     if (typeof raw !== 'string' || raw.length === 0) {
       return null;
     }
-    if (/^https?:\/\//i.test(raw)) {
-      return raw;
-    }
     try {
-      const url = await this.awsService.getPresignedGetUrl(raw);
-      return url ?? null;
+      return await resolvePhotoUrl(this.awsService, raw);
     } catch (error) {
       this.logger.warn(
         `No se pudo generar URL prefirmada para ${raw}: ${error}`,
       );
       return null;
     }
+  }
+
+  private async mapUserWithPhotoUrl(user: any): Promise<any> {
+    if (!user) {
+      return user;
+    }
+
+    const urlFoto = await this.resolveFotoUrl(user?.url_foto ?? null);
+
+    return {
+      ...user,
+      urlFoto,
+    };
   }
 
   private async getResponsabilidadIdByNombre(
@@ -780,6 +790,7 @@ export class DocumentsService {
               segundo_apellido: true,
               apellido_casada: true,
               correo_institucional: true,
+              url_foto: true,
               gerencia: {
                 select: {
                   id: true,
@@ -805,7 +816,31 @@ export class DocumentsService {
               observaciones: true,
               fecha_observacion: true,
               updated_at: true,
-              user: true,
+              user: {
+                select: {
+                  id: true,
+                  primer_nombre: true,
+                  segundo_name: true,
+                  tercer_nombre: true,
+                  primer_apellido: true,
+                  segundo_apellido: true,
+                  apellido_casada: true,
+                  correo_institucional: true,
+                  url_foto: true,
+                  gerencia: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                    },
+                  },
+                  posicion: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                    },
+                  },
+                },
+              },
               estado_firma: true,
             },
           },
@@ -821,6 +856,7 @@ export class DocumentsService {
                   segundo_apellido: true,
                   apellido_casada: true,
                   correo_institucional: true,
+                  url_foto: true,
                   gerencia: {
                     select: {
                       id: true,
@@ -853,7 +889,30 @@ export class DocumentsService {
         );
       }
 
-      return cuadroFirmaDB as CuadroFirmaDB;
+      const creador = await this.mapUserWithPhotoUrl(cuadroFirmaDB.user);
+
+      const historialConFoto = await Promise.all(
+        (cuadroFirmaDB.cuadro_firma_estado_historial ?? []).map(
+          async (historial) => ({
+            ...historial,
+            user: await this.mapUserWithPhotoUrl(historial.user),
+          }),
+        ),
+      );
+
+      const firmantesConFoto = await Promise.all(
+        (cuadroFirmaDB.cuadro_firma_user ?? []).map(async (firmante) => ({
+          ...firmante,
+          user: await this.mapUserWithPhotoUrl(firmante.user),
+        })),
+      );
+
+      return {
+        ...cuadroFirmaDB,
+        user: creador,
+        cuadro_firma_estado_historial: historialConFoto,
+        cuadro_firma_user: firmantesConFoto,
+      } as CuadroFirmaDB;
     } catch (error) {
       return this.handleDBErrors(
         error,
@@ -1001,9 +1060,16 @@ export class DocumentsService {
     try {
       const firmantes =
         await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(id);
+
+      const firmantesConFoto = await Promise.all(
+        (firmantes ?? []).map(async (firmante) => ({
+          ...firmante,
+          user: await this.mapUserWithPhotoUrl(firmante.user),
+        })),
+      );
       return {
         status: HttpStatus.ACCEPTED,
-        data: firmantes,
+        data: firmantesConFoto,
       };
     } catch (error) {
       this.handleDBErrors(

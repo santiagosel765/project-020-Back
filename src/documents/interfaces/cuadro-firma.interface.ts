@@ -18,6 +18,8 @@ export interface CuadroFirmaDB  {
     segundo_apellido: string,
     apellido_casada: string,
     correo_institucional: string,
+    url_foto: string | null,
+    urlFoto?: string | null,
     gerencia: { id: number, nombre: string },
     posicion: { id: number, nombre: string }
   },
@@ -42,6 +44,8 @@ export interface CuadroFirmaDB  {
       segundo_apellido: string,
       apellido_casada: string,
       correo_institucional: string,
+      url_foto: string | null,
+      urlFoto?: string | null,
       gerencia: { id: number, nombre: string },
       posicion: { id: number, nombre: string }
     },
