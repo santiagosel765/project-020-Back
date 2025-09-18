@@ -331,6 +331,7 @@ export class UsersService {
         id: true,
         primer_nombre: true,
         correo_institucional: true,
+        url_foto: true,
       },
     });
     if (!user) {
@@ -354,6 +355,8 @@ export class UsersService {
       url = presigned.data;
     }
 
+    const avatarUrl = await this.resolvePhotoUrl(user.url_foto ?? null);
+
     return {
       id: user.id,
       nombre: user.primer_nombre,
@@ -362,6 +365,7 @@ export class UsersService {
       roles,
       signatureUrl: url,
       hasSignature: exists,
+      avatarUrl,
     };
   }
 

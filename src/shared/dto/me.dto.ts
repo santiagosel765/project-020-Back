@@ -8,4 +8,5 @@ export interface MeResponseDto {
   roles: string[];
   signatureUrl: string | null;
   hasSignature: boolean;
+  avatarUrl: string | null;
 }
