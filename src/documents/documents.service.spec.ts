@@ -24,14 +24,9 @@ jest.mock('src/aws/aws.service', () => ({
   AWSService: class {},
 }));
 
-import { BadRequestException } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
-import {
-  type PdfRepository,
-  OFFSETS_DEFAULT,
-  SIGNATURE_DEFAULT,
-} from '../pdf/domain/repositories/pdf.repository';
+import { type PdfRepository } from '../pdf/domain/repositories/pdf.repository';
 
 const createService = () => {
   const pdfRepository: jest.Mocked<PdfRepository> = {
@@ -116,39 +111,21 @@ describe('DocumentsService.signDocument', () => {
     jest.restoreAllMocks();
   });
 
-  it('firma el documento usando offsets relativos', async () => {
+  it('firma el documento insertando la firma y subiendo el archivo', async () => {
     const { service, pdfRepository, awsService, pdfBaseBuffer } =
       createService();
-    const resolved = 'FECHA_ELABORA_ELABORA_TEST';
-
-    jest
-      .spyOn<any, any>(service as any, 'resolvePlaceholderInPdf')
-      .mockResolvedValue({
-        resolved,
-        primary: resolved,
-        candidates: [resolved],
-      });
 
     const signatureBuffer = Buffer.from('signature-image');
     const signedBuffer = Buffer.from('signed');
-    pdfRepository.fillRelativeToAnchor.mockResolvedValue(signedBuffer);
+    pdfRepository.insertSignature.mockResolvedValue(signedBuffer);
 
     const response = await service.signDocument(baseDto, signatureBuffer);
 
-    expect(pdfRepository.fillTextAnchors).not.toHaveBeenCalled();
-    expect(pdfRepository.fillRowByColumns).not.toHaveBeenCalled();
-    expect(pdfRepository.insertSignature).not.toHaveBeenCalled();
-    expect(pdfRepository.fillRelativeToAnchor).toHaveBeenCalledWith(
+    expect(pdfRepository.insertSignature).toHaveBeenCalledWith(
       pdfBaseBuffer,
-      resolved,
-      {
-        NOMBRE: 'Juan Perez',
-        PUESTO: 'Analista',
-        GERENCIA: 'Tecnología',
-        FECHA: expect.any(String),
-      },
-      OFFSETS_DEFAULT,
-      { buffer: signatureBuffer, ...SIGNATURE_DEFAULT },
+      signatureBuffer,
+      'FECHA_ELABORA_Juan_Perez',
+      null,
     );
     expect(awsService.uploadFile).toHaveBeenCalledWith(
       signedBuffer,
@@ -160,38 +137,32 @@ describe('DocumentsService.signDocument', () => {
     });
   });
 
-  it('lanza error si fillRelativeToAnchor devuelve vacío', async () => {
+  it('lanza error si insertSignature falla', async () => {
     const { service, pdfRepository } = createService();
-    const resolved = 'FECHA_ELABORA_ELABORA_TEST';
-
-    jest
-      .spyOn<any, any>(service as any, 'resolvePlaceholderInPdf')
-      .mockResolvedValue({
-        resolved,
-        primary: resolved,
-        candidates: [resolved],
-      });
-
-    pdfRepository.fillRelativeToAnchor.mockResolvedValue(Buffer.alloc(0));
+    pdfRepository.insertSignature.mockRejectedValue(new Error('fail'));
 
     await expect(
       service.signDocument(baseDto, Buffer.from('signature-image')),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toThrow('fail');
   });
 
-  it('lanza error si no encuentra el placeholder FECHA', async () => {
-    const { service } = createService();
+  it('construye el placeholder según la responsabilidad', async () => {
+    const { service, pdfRepository, awsService } = createService();
+    const signatureBuffer = Buffer.from('signature-image');
+    const signedBuffer = Buffer.from('signed');
+    pdfRepository.insertSignature.mockResolvedValue(signedBuffer);
 
-    jest
-      .spyOn<any, any>(service as any, 'resolvePlaceholderInPdf')
-      .mockResolvedValue({
-        resolved: null,
-        primary: 'FECHA_ELABORA_FAKE',
-        candidates: [],
-      });
+    await service.signDocument(
+      { ...baseDto, nombreResponsabilidad: 'Aprueba' },
+      signatureBuffer,
+    );
 
-    await expect(
-      service.signDocument(baseDto, Buffer.from('signature-image')),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(pdfRepository.insertSignature).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      signatureBuffer,
+      'FECHA_APRUEBA_Juan_Perez',
+      null,
+    );
+    expect(awsService.uploadFile).toHaveBeenCalled();
   });
 });

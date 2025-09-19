@@ -7,6 +7,7 @@ import { PaginationDto } from 'src/shared/dto';
 import {
   buildPaginationResult,
   normalizePagination,
+  stableOrder,
 } from 'src/shared/utils/pagination';
 
 @Injectable()
@@ -29,10 +30,7 @@ export class PaginasService {
       this.prisma.pagina.count({ where }),
       this.prisma.pagina.findMany({
         where,
-        orderBy: [
-          { add_date: sort },
-          { id: sort },
-        ],
+        orderBy: stableOrder(sort),
         take,
         skip,
       }),

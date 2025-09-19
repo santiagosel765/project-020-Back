@@ -16,6 +16,19 @@ export interface NormalizedPagination {
   take: number;
 }
 
+const toInt = (value: unknown) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.trunc(num) : NaN;
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max);
+
+export const stableOrder = (sort: SortDirection) => [
+  { add_date: sort },
+  { id: sort },
+];
+
 export function normalizePagination(
   pagination?: PaginationInput,
 ): NormalizedPagination {
@@ -23,23 +36,17 @@ export function normalizePagination(
   const rawLimit = pagination?.limit ?? 10;
   const rawSort = pagination?.sort ?? 'desc';
 
-  const page = Number(rawPage);
-  if (!Number.isFinite(page) || !Number.isInteger(page)) {
+  const parsedPage = toInt(rawPage);
+  if (Number.isNaN(parsedPage)) {
     throw new BadRequestException('El parámetro "page" debe ser un entero.');
   }
-  if (page < 1) {
-    throw new BadRequestException('El parámetro "page" debe ser mayor o igual a 1.');
-  }
+  const page = clamp(parsedPage, 1, Number.MAX_SAFE_INTEGER);
 
-  const limit = Number(rawLimit);
-  if (!Number.isFinite(limit) || !Number.isInteger(limit)) {
+  const parsedLimit = toInt(rawLimit);
+  if (Number.isNaN(parsedLimit)) {
     throw new BadRequestException('El parámetro "limit" debe ser un entero.');
   }
-  if (limit < 1 || limit > 100) {
-    throw new BadRequestException(
-      'El parámetro "limit" debe estar entre 1 y 100.',
-    );
-  }
+  const limit = clamp(parsedLimit, 1, 100);
 
   let sort: SortDirection;
   if (rawSort === 'asc' || rawSort === 'desc') {
@@ -50,13 +57,10 @@ export function normalizePagination(
     sort = 'desc';
   }
 
-  return {
-    page,
-    limit,
-    sort,
-    skip: (page - 1) * limit,
-    take: limit,
-  };
+  const take = limit;
+  const skip = (page - 1) * take;
+
+  return { page, limit: take, sort, skip, take };
 }
 
 export function buildPaginationResult<T>(
@@ -66,7 +70,7 @@ export function buildPaginationResult<T>(
   limit: number,
   sort: SortDirection,
 ) {
-  const pages = Math.ceil(total / limit);
+  const pages = Math.max(1, Math.ceil(total / limit));
   return {
     items,
     page,

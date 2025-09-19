@@ -12,6 +12,7 @@ import { PageDto, PaginationDto } from '../shared/dto';
 import {
   buildPaginationResult,
   normalizePagination,
+  stableOrder,
 } from 'src/shared/utils/pagination';
 
 @Injectable()
@@ -42,10 +43,7 @@ export class RolesService {
       this.prisma.rol.count({ where }),
       this.prisma.rol.findMany({
         where,
-        orderBy: [
-          { add_date: sort },
-          { id: sort },
-        ],
+        orderBy: stableOrder(sort),
         take,
         skip,
         select,

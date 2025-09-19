@@ -14,7 +14,6 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": ".",
-    "include": ["src", "prisma/generated/prisma"],
     "paths": {
       "generated/prisma": ["prisma/generated/prisma"]
     },
@@ -25,5 +24,6 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
-  }
+  },
+  "include": ["src", "prisma/generated/prisma"]
 }
