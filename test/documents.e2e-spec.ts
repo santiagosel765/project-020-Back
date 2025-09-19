@@ -1,8 +1,20 @@
 /* eslint-disable */
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, Controller, Get, Param, Query, UseGuards, HttpStatus, Inject } from '@nestjs/common';
+import {
+  INestApplication,
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+  HttpStatus,
+  Inject,
+  ParseIntPipe,
+  Res,
+} from '@nestjs/common';
 import request from 'supertest';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
+import type { Response } from 'express';
 
 const documentsServiceMock = {
   listByUser: jest.fn().mockResolvedValue({
@@ -117,6 +129,7 @@ const documentsServiceMock = {
       status: HttpStatus.OK,
       data: 'https://example.com/file.pdf?response-content-type=application%2Fpdf&content-disposition=inline',
     }),
+  getMergedDocuments: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4\n')),
 };
 
 @UseGuards(JwtAuthGuard)
@@ -172,6 +185,25 @@ class TestDocumentsController {
       urlDocumento: urlDocumento.data,
       ...cuadroFirmasDB,
     };
+  }
+
+  @Get('cuadro-firmas/:id/merged-pdf')
+  async getMergedPDF(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('download') download: string,
+    @Res() res: Response,
+  ) {
+    const merged = await this.documentsService.getMergedDocuments(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    const isDownload = download === '1' || download === 'true';
+    res.setHeader(
+      'Content-Disposition',
+      isDownload
+        ? 'attachment; filename="documento-firmas.pdf"'
+        : 'inline; filename="merged.pdf"',
+    );
+    res.setHeader('Content-Length', merged.length.toString());
+    return res.send(merged);
   }
 }
 
@@ -274,5 +306,21 @@ describe('DocumentsController (e2e)', () => {
     expect(res.body.urlDocumento.toLowerCase()).toContain(
       'content-disposition=inline',
     );
+  });
+
+  it('merged pdf endpoint responde con un PDF', async () => {
+    const pdfBuffer = Buffer.from('%PDF-1.7\n');
+    documentsServiceMock.getMergedDocuments.mockResolvedValueOnce(pdfBuffer);
+
+    const res = await request(app.getHttpServer())
+      .get('/documents/cuadro-firmas/1/merged-pdf')
+      .expect(HttpStatus.OK);
+
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-disposition']).toBe(
+      'inline; filename="merged.pdf"',
+    );
+    expect(res.headers['content-length']).toBe(String(pdfBuffer.length));
+    expect(res.body).toEqual(pdfBuffer);
   });
 });

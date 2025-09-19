@@ -549,6 +549,105 @@ export class DocumentsService {
     }
   }
 
+  async getMergedDocuments(cuadroFirmasId: number): Promise<Buffer> {
+    const cuadroFirmas = await this.findCuadroFirma(cuadroFirmasId);
+    const cuadroFirmasKey = cuadroFirmas?.nombre_pdf ?? null;
+
+    if (!cuadroFirmasKey) {
+      this.logger.warn(
+        `Cuadro de firmas ${cuadroFirmasId} no tiene PDF asociado en la base de datos`,
+      );
+      throw new HttpException(
+        `No se encontró el PDF del cuadro de firmas ${cuadroFirmasId}.`,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const documento = await this.documentosRepository.findByCuadroFirmaID(
+      cuadroFirmasId,
+    );
+    const documentoKey = documento?.nombre_archivo ?? null;
+
+    if (!documentoKey) {
+      this.logger.warn(
+        `Cuadro de firmas ${cuadroFirmasId} no tiene documento original asociado`,
+      );
+      throw new HttpException(
+        `No se encontró el documento original asociado al cuadro de firmas ${cuadroFirmasId}.`,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const minSizeBytes = 1024;
+
+    let documentoBuffer: Buffer;
+    try {
+      documentoBuffer = await this.awsService.getFileBuffer(
+        documentoKey,
+        'pdf',
+      );
+    } catch (error) {
+      this.logger.error(
+        `No se pudo descargar el documento ${documentoKey} desde el almacenamiento: ${error}`,
+      );
+      throw new HttpException(
+        'No se pudo descargar el documento original desde el almacenamiento.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (documentoBuffer.length <= minSizeBytes) {
+      this.logger.warn(
+        `El documento original ${documentoKey} parece estar vacío (${documentoBuffer.length} bytes)`,
+      );
+      throw new HttpException(
+        'El documento original parece estar vacío o dañado.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    let cuadroFirmasBuffer: Buffer;
+    try {
+      cuadroFirmasBuffer = await this.awsService.getFileBuffer(
+        cuadroFirmasKey,
+        'pdf',
+      );
+    } catch (error) {
+      this.logger.error(
+        `No se pudo descargar el cuadro de firmas ${cuadroFirmasKey} desde el almacenamiento: ${error}`,
+      );
+      throw new HttpException(
+        'No se pudo descargar el cuadro de firmas desde el almacenamiento.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (cuadroFirmasBuffer.length <= minSizeBytes) {
+      this.logger.warn(
+        `El cuadro de firmas ${cuadroFirmasKey} parece estar vacío (${cuadroFirmasBuffer.length} bytes)`,
+      );
+      throw new HttpException(
+        'El cuadro de firmas parece estar vacío o dañado.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      return await this.pdfRepository.mergePDFs([
+        documentoBuffer,
+        cuadroFirmasBuffer,
+      ]);
+    } catch (error) {
+      this.logger.error(
+        `No se pudieron unir los PDFs del cuadro de firmas ${cuadroFirmasId}: ${error}`,
+      );
+      throw new HttpException(
+        'No se pudo combinar los archivos PDF solicitados.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   /**
    * Genera y almacena una nueva plantilla HTML personalizada para una empresa.
    *
