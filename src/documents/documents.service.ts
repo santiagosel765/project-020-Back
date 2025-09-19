@@ -45,6 +45,7 @@ import { ListQueryDto } from './dto/list-query.dto';
 import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
 import {
   buildPaginationResult,
+  logPaginationDebug,
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
@@ -1139,6 +1140,15 @@ export class DocumentsService {
     const where = this.buildWhere(q.search, q.estado);
     const orderBy = stableOrder(sort);
 
+    logPaginationDebug('DocumentsService.listSupervision', 'before', {
+      page,
+      limit,
+      sort,
+      skip,
+      take,
+      orderBy,
+    });
+
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),
       this.prisma.cuadro_firma.findMany({
@@ -1155,6 +1165,14 @@ export class DocumentsService {
         },
       }),
     ]);
+
+    logPaginationDebug('DocumentsService.listSupervision', 'after', {
+      total,
+      count: total,
+      firstId: rows[0]?.id ?? null,
+      lastId: rows.length > 0 ? rows[rows.length - 1]?.id ?? null : null,
+      returned: rows.length,
+    });
 
     const documentos = await Promise.all(rows.map(async (row) => {
       const { cuadro_firma_user = [], ...rest } = row;
@@ -1177,6 +1195,15 @@ export class DocumentsService {
     };
     const orderBy = stableOrder(sort);
 
+    logPaginationDebug('DocumentsService.listByUser', 'before', {
+      page,
+      limit,
+      sort,
+      skip,
+      take,
+      orderBy,
+    });
+
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),
       this.prisma.cuadro_firma.findMany({
@@ -1193,6 +1220,14 @@ export class DocumentsService {
         },
       }),
     ]);
+
+    logPaginationDebug('DocumentsService.listByUser', 'after', {
+      total,
+      count: total,
+      firstId: rows[0]?.id ?? null,
+      lastId: rows.length > 0 ? rows[rows.length - 1]?.id ?? null : null,
+      returned: rows.length,
+    });
 
     const asignaciones = await Promise.all(rows.map(async (row) => {
       const { cuadro_firma_user = [], ...rest } = row;

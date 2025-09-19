@@ -29,6 +29,21 @@ export const stableOrder = (sort: SortDirection) => [
   { id: sort },
 ];
 
+const isPaginationDebugEnabled = () => process.env.PAGINATION_DEBUG === '1';
+
+export const logPaginationDebug = (
+  service: string,
+  stage: 'before' | 'after' | string,
+  payload: Record<string, unknown>,
+) => {
+  if (!isPaginationDebugEnabled()) {
+    return;
+  }
+
+  const prefix = `[PAGINACION][${service}][${stage}]`;
+  console.log(prefix, payload);
+};
+
 export function normalizePagination(
   pagination?: PaginationInput,
 ): NormalizedPagination {
