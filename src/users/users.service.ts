@@ -21,6 +21,7 @@ import { Prisma } from 'generated/prisma';
 import { extname } from 'path';
 import {
   buildPaginationResult,
+  logPaginationDebug,
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
@@ -146,17 +147,35 @@ export class UsersService {
     }
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
+    const orderBy = stableOrder(sort);
+
+    logPaginationDebug('UsersService.findAll', 'before', {
+      page,
+      limit,
+      sort,
+      skip,
+      take,
+      orderBy,
+    });
 
     const [total, users] = await this.prisma.$transaction([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
-        orderBy: stableOrder(sort),
+        orderBy,
         take,
         skip,
         select: userSummarySelect,
       }),
     ]);
+
+    logPaginationDebug('UsersService.findAll', 'after', {
+      total,
+      count: total,
+      firstId: users[0]?.id ?? null,
+      lastId: users.length > 0 ? users[users.length - 1]?.id ?? null : null,
+      returned: users.length,
+    });
 
     const mapped = await Promise.all(users.map((user) => this.mapUser(user)));
 

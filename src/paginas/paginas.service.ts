@@ -6,6 +6,7 @@ import { Prisma } from 'generated/prisma';
 import { PaginationDto } from 'src/shared/dto';
 import {
   buildPaginationResult,
+  logPaginationDebug,
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
@@ -25,16 +26,35 @@ export class PaginasService {
     }
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
+    const orderBy = stableOrder(sort);
+
+    logPaginationDebug('PaginasService.findAll', 'before', {
+      page,
+      limit,
+      sort,
+      skip,
+      take,
+      orderBy,
+    });
 
     const [total, paginas] = await this.prisma.$transaction([
       this.prisma.pagina.count({ where }),
       this.prisma.pagina.findMany({
         where,
-        orderBy: stableOrder(sort),
+        orderBy,
         take,
         skip,
       }),
     ]);
+
+    logPaginationDebug('PaginasService.findAll', 'after', {
+      total,
+      count: total,
+      firstId: paginas[0]?.id ?? null,
+      lastId:
+        paginas.length > 0 ? paginas[paginas.length - 1]?.id ?? null : null,
+      returned: paginas.length,
+    });
 
     return buildPaginationResult(paginas, total, page, limit, sort);
   }

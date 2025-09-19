@@ -11,6 +11,7 @@ import { UpdateRolDto } from './dto/update-rol.dto';
 import { PageDto, PaginationDto } from '../shared/dto';
 import {
   buildPaginationResult,
+  logPaginationDebug,
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
@@ -38,17 +39,35 @@ export class RolesService {
     }
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
+    const orderBy = stableOrder(sort);
+
+    logPaginationDebug('RolesService.findAll', 'before', {
+      page,
+      limit,
+      sort,
+      skip,
+      take,
+      orderBy,
+    });
 
     const [total, roles] = await this.prisma.$transaction([
       this.prisma.rol.count({ where }),
       this.prisma.rol.findMany({
         where,
-        orderBy: stableOrder(sort),
+        orderBy,
         take,
         skip,
         select,
       }),
     ]);
+
+    logPaginationDebug('RolesService.findAll', 'after', {
+      total,
+      count: total,
+      firstId: roles[0]?.id ?? null,
+      lastId: roles.length > 0 ? roles[roles.length - 1]?.id ?? null : null,
+      returned: roles.length,
+    });
 
     return buildPaginationResult(roles, total, page, limit, sort);
   }
