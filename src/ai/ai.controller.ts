@@ -6,7 +6,6 @@ import { AiService } from './ai.service';
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
-
   @Get()
   findAll() {
     return 'findAll()';
