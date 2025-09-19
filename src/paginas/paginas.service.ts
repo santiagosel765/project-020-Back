@@ -4,46 +4,41 @@ import { CreatePaginaDto } from './dto/create-pagina.dto';
 import { UpdatePaginaDto } from './dto/update-pagina.dto';
 import { Prisma } from 'generated/prisma';
 import { PaginationDto } from 'src/shared/dto';
-import { buildPageMeta } from 'src/shared/utils/pagination';
+import {
+  buildPaginationResult,
+  normalizePagination,
+} from 'src/shared/utils/pagination';
 
 @Injectable()
 export class PaginasService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(all = false, pagination?: PaginationDto) {
-    const hasPagination =
-      pagination?.page !== undefined || pagination?.limit !== undefined;
-
     const where = all ? undefined : { activo: true };
 
-    if (!hasPagination) {
+    if (all) {
       return this.prisma.pagina.findMany({
         where,
         orderBy: { id: 'asc' },
       });
     }
 
-    const rawPage = pagination?.page ?? 1;
-    const rawLimit = pagination?.limit ?? 10;
-    const page = Math.max(1, Number(rawPage) || 1);
-    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 10));
-    const sort: 'asc' | 'desc' = pagination?.sort === 'asc' ? 'asc' : 'desc';
-    const skip = (page - 1) * limit;
+    const { page, limit, sort, skip, take } = normalizePagination(pagination);
 
     const [total, paginas] = await this.prisma.$transaction([
       this.prisma.pagina.count({ where }),
       this.prisma.pagina.findMany({
         where,
-        orderBy: { id: sort },
-        take: limit,
+        orderBy: [
+          { add_date: sort },
+          { id: sort },
+        ],
+        take,
         skip,
       }),
     ]);
 
-    return {
-      items: paginas,
-      meta: buildPageMeta(total, page, limit),
-    };
+    return buildPaginationResult(paginas, total, page, limit, sort);
   }
 
   async create(dto: CreatePaginaDto) {

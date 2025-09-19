@@ -43,7 +43,10 @@ import { joinWithSpace } from 'src/common/utils/strings';
 import { Prisma } from 'generated/prisma';
 import { ListQueryDto } from './dto/list-query.dto';
 import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
-import { buildPageMeta } from 'src/shared/utils/pagination';
+import {
+  buildPaginationResult,
+  normalizePagination,
+} from 'src/shared/utils/pagination';
 
 @Injectable()
 export class DocumentsService {
@@ -1135,29 +1138,11 @@ export class DocumentsService {
       : [{ add_date: 'desc' as const }, { id: 'desc' as const }];
   }
 
-  private meta(total: number, page: number, limit: number) {
-    const base = buildPageMeta(total, page, limit);
-    const { total: totalItems, pages, page: currentPage, limit: pageSize } = base;
-
-    return {
-      ...base,
-      totalCount: totalItems,
-      totalPages: pages,
-      lastPage: pages,
-      hasNextPage: currentPage < pages,
-      hasPrevPage: currentPage > 1,
-      page: currentPage,
-      limit: pageSize,
-    };
-  }
-
   async listSupervision(q: ListQueryDto) {
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
-    const skip = (page - 1) * limit;
+    const { page, limit, sort, skip, take } = normalizePagination(q);
 
     const where = this.buildWhere(q.search, q.estado);
-    const orderBy = this.buildOrder(q.sort ?? 'desc');
+    const orderBy = this.buildOrder(sort);
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),
@@ -1165,7 +1150,7 @@ export class DocumentsService {
         where,
         orderBy,
         skip,
-        take: limit,
+        take,
         include: {
           estado_firma: true,
           empresa: true,
@@ -1185,24 +1170,17 @@ export class DocumentsService {
       };
     }));
 
-    const meta = this.meta(total, page, limit);
-
-    return {
-      status: HttpStatus.ACCEPTED,
-      data: { documentos, items: documentos, meta },
-    };
+    return buildPaginationResult(documentos, total, page, limit, sort);
   }
 
   async listByUser(userId: number, q: ListQueryDto) {
-    const page = Math.max(1, Number(q.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
-    const skip = (page - 1) * limit;
+    const { page, limit, sort, skip, take } = normalizePagination(q);
 
     const whereDoc = this.buildWhere(q.search, q.estado);
     const where: Prisma.cuadro_firmaWhereInput = {
       AND: [whereDoc, { cuadro_firma_user: { some: { user_id: userId } } }],
     };
-    const orderBy = this.buildOrder(q.sort ?? 'desc');
+    const orderBy = this.buildOrder(sort);
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),
@@ -1210,7 +1188,7 @@ export class DocumentsService {
         where,
         orderBy,
         skip,
-        take: limit,
+        take,
         include: {
           estado_firma: true,
           empresa: true,
@@ -1231,11 +1209,7 @@ export class DocumentsService {
         },
       };
     }));
-    const meta = this.meta(total, page, limit);
-    return {
-      status: HttpStatus.ACCEPTED,
-      data: { asignaciones, items: asignaciones, meta },
-    };
+    return buildPaginationResult(asignaciones, total, page, limit, sort);
   }
 
   async statsSupervision(search?: string) {

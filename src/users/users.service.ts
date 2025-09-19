@@ -19,7 +19,10 @@ import { MeResponseDto, PaginationDto } from 'src/shared/dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Prisma } from 'generated/prisma';
 import { extname } from 'path';
-import { buildPageMeta } from 'src/shared/utils/pagination';
+import {
+  buildPaginationResult,
+  normalizePagination,
+} from 'src/shared/utils/pagination';
 
 const userSummarySelect = {
   id: true,
@@ -130,12 +133,9 @@ export class UsersService {
   }
 
   async findAll(includeAll = false, pagination?: PaginationDto) {
-    const hasPagination =
-      pagination?.page !== undefined || pagination?.limit !== undefined;
-
     const where = includeAll ? undefined : { activo: true };
 
-    if (!hasPagination) {
+    if (includeAll) {
       const users = await this.prisma.user.findMany({
         where,
         orderBy: { id: 'asc' },
@@ -144,19 +144,17 @@ export class UsersService {
       return Promise.all(users.map((user) => this.mapUser(user)));
     }
 
-    const rawPage = pagination?.page ?? 1;
-    const rawLimit = pagination?.limit ?? 10;
-    const page = Math.max(1, Number(rawPage) || 1);
-    const limit = Math.min(100, Math.max(1, Number(rawLimit) || 10));
-    const sort: 'asc' | 'desc' = pagination?.sort === 'asc' ? 'asc' : 'desc';
-    const skip = (page - 1) * limit;
+    const { page, limit, sort, skip, take } = normalizePagination(pagination);
 
     const [total, users] = await this.prisma.$transaction([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
-        orderBy: { id: sort },
-        take: limit,
+        orderBy: [
+          { add_date: sort },
+          { id: sort },
+        ],
+        take,
         skip,
         select: userSummarySelect,
       }),
@@ -164,10 +162,7 @@ export class UsersService {
 
     const mapped = await Promise.all(users.map((user) => this.mapUser(user)));
 
-    return {
-      items: mapped,
-      meta: buildPageMeta(total, page, limit),
-    };
+    return buildPaginationResult(mapped, total, page, limit, sort);
   }
 
   async findOne(id: number) {
