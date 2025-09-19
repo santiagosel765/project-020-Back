@@ -38,6 +38,7 @@ const createService = () => {
     fillRelativeToAnchor: jest.fn(),
     fillRowByColumns: jest.fn(),
     locateSignatureTableColumns: jest.fn(),
+    mergePDFs: jest.fn(),
   } as unknown as jest.Mocked<PdfRepository>;
 
   const prisma = {
@@ -214,5 +215,97 @@ describe('DocumentsService.extractPDFContent', () => {
     await expect(service.extractPDFContent(7)).rejects.toMatchObject({
       status: HttpStatus.BAD_REQUEST,
     });
+  });
+});
+
+describe('DocumentsService.getMergedDocuments', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('descarga ambos PDFs y los combina en el orden correcto', async () => {
+    const {
+      service,
+      awsService,
+      pdfRepository,
+      documentosRepository,
+    } = createService();
+
+    const documentoBuffer = Buffer.alloc(2048, 1);
+    const cuadroFirmasBuffer = Buffer.alloc(2048, 2);
+    const mergedBuffer = Buffer.from('merged');
+
+    jest
+      .spyOn(service, 'findCuadroFirma')
+      .mockResolvedValue({ nombre_pdf: 'cuadro.pdf' } as any);
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue({
+      nombre_archivo: 'documento.pdf',
+    });
+    awsService.getFileBuffer.mockImplementation(async (key: string) => {
+      if (key === 'documento.pdf') {
+        return documentoBuffer;
+      }
+      if (key === 'cuadro.pdf') {
+        return cuadroFirmasBuffer;
+      }
+      throw new Error('unknown key');
+    });
+    pdfRepository.mergePDFs.mockResolvedValue(mergedBuffer);
+
+    const result = await service.getMergedDocuments(123);
+
+    expect(awsService.getFileBuffer).toHaveBeenNthCalledWith(
+      1,
+      'documento.pdf',
+      'pdf',
+    );
+    expect(awsService.getFileBuffer).toHaveBeenNthCalledWith(
+      2,
+      'cuadro.pdf',
+      'pdf',
+    );
+    expect(pdfRepository.mergePDFs).toHaveBeenCalledWith([
+      documentoBuffer,
+      cuadroFirmasBuffer,
+    ]);
+    expect(result).toBe(mergedBuffer);
+  });
+
+  it('lanza 404 si no existe documento asociado al cuadro de firmas', async () => {
+    const { service, documentosRepository } = createService();
+    jest
+      .spyOn(service, 'findCuadroFirma')
+      .mockResolvedValue({ nombre_pdf: 'cuadro.pdf' } as any);
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue(null);
+
+    await expect(service.getMergedDocuments(321)).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+    });
+  });
+
+  it('lanza 400 si alguno de los PDFs descargados es demasiado pequeño', async () => {
+    const {
+      service,
+      awsService,
+      documentosRepository,
+      pdfRepository,
+    } = createService();
+    jest
+      .spyOn(service, 'findCuadroFirma')
+      .mockResolvedValue({ nombre_pdf: 'cuadro.pdf' } as any);
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue({
+      nombre_archivo: 'documento.pdf',
+    });
+    awsService.getFileBuffer.mockImplementation(async (key: string) => {
+      if (key === 'documento.pdf') {
+        return Buffer.alloc(2048, 1);
+      }
+      return Buffer.alloc(100, 1);
+    });
+
+    await expect(service.getMergedDocuments(11)).rejects.toMatchObject({
+      status: HttpStatus.BAD_REQUEST,
+    });
+    expect(pdfRepository.mergePDFs).not.toHaveBeenCalled();
   });
 });

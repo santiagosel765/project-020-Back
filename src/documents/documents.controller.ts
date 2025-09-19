@@ -223,8 +223,28 @@ export class DocumentsController {
       urlCuadroFirmasPDF: urlCuadroFirmasPDF.data.data,
       urlDocumento: urlDocumento.data.data,
       ...cuadroFirmasDB,
-      
     };
+  }
+
+  @Get('cuadro-firmas/:id/merged-pdf')
+  async getMergedPDF(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('download') download: string,
+    @Res() res: Response,
+  ) {
+    const merged = await this.documentsService.getMergedDocuments(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    const isDownload = download === '1' || download === 'true';
+    res.setHeader(
+      'Content-Disposition',
+      isDownload
+        ? 'attachment; filename="documento-firmas.pdf"'
+        : 'inline; filename="merged.pdf"',
+    );
+    if (typeof merged?.length === 'number') {
+      res.setHeader('Content-Length', merged.length.toString());
+    }
+    return res.send(merged);
   }
 
   @Post('cuadro-firmas')

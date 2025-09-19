@@ -96,6 +96,8 @@ export interface PdfRepository {
     values: Record<'NOMBRE' | 'PUESTO' | 'GERENCIA' | 'FECHA', string>,
     options?: FillRowByColumnsOptions,
   ): Promise<FillRowByColumnsResult>;
+
+  mergePDFs(pdfBuffers: Buffer[]): Promise<Buffer>;
 }
 
 export const CELL = { height: 22, textSize: 8 } as const;

@@ -840,6 +840,33 @@ export class PdfLibRepository implements PdfRepository {
     return { buffer, mode: 'columns' };
   }
 
+  async mergePDFs(pdfBuffers: Buffer[]): Promise<Buffer> {
+    if (!Array.isArray(pdfBuffers) || pdfBuffers.length === 0) {
+      throw new Error('No se proporcionaron PDFs para combinar');
+    }
+
+    const mergedPdf = await PDFDocument.create();
+
+    for (const buffer of pdfBuffers) {
+      if (!buffer?.length) {
+        throw new Error('Uno de los PDFs recibidos está vacío');
+      }
+
+      const pdfDoc = await PDFDocument.load(buffer);
+      const copiedPages = await mergedPdf.copyPages(
+        pdfDoc,
+        pdfDoc.getPageIndices(),
+      );
+
+      for (const page of copiedPages) {
+        mergedPdf.addPage(page);
+      }
+    }
+
+    const mergedBytes = await mergedPdf.save();
+    return Buffer.from(mergedBytes);
+  }
+
   private truncateText(
     font: PDFFont,
     text: string,
