@@ -46,6 +46,7 @@ import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
 import {
   buildPaginationResult,
   normalizePagination,
+  stableOrder,
 } from 'src/shared/utils/pagination';
 
 @Injectable()
@@ -1132,17 +1133,11 @@ export class DocumentsService {
     };
   }
 
-  private buildOrder(sort: 'asc' | 'desc') {
-    return sort === 'asc'
-      ? [{ add_date: 'asc' as const }, { id: 'asc' as const }]
-      : [{ add_date: 'desc' as const }, { id: 'desc' as const }];
-  }
-
   async listSupervision(q: ListQueryDto) {
     const { page, limit, sort, skip, take } = normalizePagination(q);
 
     const where = this.buildWhere(q.search, q.estado);
-    const orderBy = this.buildOrder(sort);
+    const orderBy = stableOrder(sort);
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),
@@ -1180,7 +1175,7 @@ export class DocumentsService {
     const where: Prisma.cuadro_firmaWhereInput = {
       AND: [whereDoc, { cuadro_firma_user: { some: { user_id: userId } } }],
     };
-    const orderBy = this.buildOrder(sort);
+    const orderBy = stableOrder(sort);
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.cuadro_firma.count({ where }),

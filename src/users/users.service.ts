@@ -22,6 +22,7 @@ import { extname } from 'path';
 import {
   buildPaginationResult,
   normalizePagination,
+  stableOrder,
 } from 'src/shared/utils/pagination';
 
 const userSummarySelect = {
@@ -150,10 +151,7 @@ export class UsersService {
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
-        orderBy: [
-          { add_date: sort },
-          { id: sort },
-        ],
+        orderBy: stableOrder(sort),
         take,
         skip,
         select: userSummarySelect,
