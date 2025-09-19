@@ -23,7 +23,7 @@ const envsSchema = joi
     S3_BUCKET_SECRET_KEY: joi.string().optional().allow(''),
 
     OPENAI_API_KEY: joi.string().optional().allow(''),
-    OPENAI_MODEL: joi.string().optional().allow(''),
+    OPENAI_MODEL: joi.string().default('gpt-4o-mini'),
   })
   .unknown(true);
 

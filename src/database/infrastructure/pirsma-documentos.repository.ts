@@ -32,4 +32,13 @@ export class PrismaDocumentosRepository implements DocumentosRepository {
       );
     }
   }
+
+  findByCuadroFirmaID(cuadroFirmaID: number) {
+    return this.prisma.documento.findFirst({
+      where: { cuadro_firma_id: cuadroFirmaID },
+      select: {
+        nombre_archivo: true,
+      },
+    });
+  }
 }
