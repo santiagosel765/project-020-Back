@@ -1,32 +1,42 @@
+import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { envs } from 'src/config/envs';
 import { AIProvider } from './ai-provider.interface';
 
+@Injectable()
 export class OpenAiProvider implements AIProvider {
-  private openAi: OpenAI;
+  private readonly client = new OpenAI({ apiKey: envs.openAiAPIKey });
 
-  constructor() {
-    this.openAi = new OpenAI({ apiKey: envs.openAiAPIKey });
-  }
+  async summarizePDF(pdfContent: string): Promise<AsyncIterable<unknown>> {
+    if (!envs.openAiAPIKey) {
+      throw new Error('OpenAI API key is not configured');
+    }
 
-  async summarizePDF(pdfContent: string): Promise<string> {
-    const response = await this.openAi.responses.create({
+    return this.client.responses.create({
       model: envs.openAiModel,
+      stream: true,
       input: [
         {
           role: 'system',
           content: `
-            Recibirás un documento en formato PDF. Tu tarea es leer y comprender el contenido, identificar las ideas principales, los argumentos más relevantes y la información esencial. Luego, debes generar un resumen claro, conciso y estructurado, evitando redundancias y detalles secundarios. El resultado debe permitir a un lector entender el tema central del documento y sus puntos clave sin necesidad de revisar el PDF completo.
-          `,
+Eres un asistente que resume PDFs. Lee el contenido y genera un RESUMEN en formato **Markdown**:
+- Claro y conciso, orientado a negocio.
+- Mínimo 1 página, máximo 2 páginas.
+- Usa títulos, viñetas y secciones (Resumen, Puntos Clave, Riesgos, Próximos pasos).
+- Evita redundancias.
+          `.trim(),
         },
         { role: 'user', content: pdfContent },
       ],
     });
-    return response.output_text;
   }
 
   async generateText(prompt: string): Promise<string> {
-    const response = await this.openAi.responses.create({
+    if (!envs.openAiAPIKey) {
+      throw new Error('OpenAI API key is not configured');
+    }
+
+    const response = await this.client.responses.create({
       model: envs.openAiModel,
       input: [
         {
@@ -38,6 +48,7 @@ export class OpenAiProvider implements AIProvider {
         { role: 'user', content: prompt },
       ],
     });
+
     return response.output_text;
   }
 }

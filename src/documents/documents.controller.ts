@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   UseInterceptors,
   UploadedFiles,
   UploadedFile,
@@ -12,6 +13,7 @@ import {
   Logger,
   HttpException,
   Query,
+  Res,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -30,6 +32,8 @@ import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { ListQueryDto } from './dto/list-query.dto';
 import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
+import { AiService } from 'src/ai/ai.service';
+import type { Response } from 'express';
 
 @Controller('documents')
 export class DocumentsController {
@@ -38,6 +42,7 @@ export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
     private readonly awsService: AWSService,
+    private readonly aiService: AiService,
   ) {}
 
   @Post()
@@ -105,6 +110,97 @@ export class DocumentsController {
   @UseInterceptors(FilesInterceptor('files', 1))
   analyzePDFTest(@UploadedFiles() files: Express.Multer.File[]) {
     return this.documentsService.analyzePDFTest(files[0].buffer);
+  }
+
+  @Post('analyze-pdf/:cuadroFirmasId')
+  async analyzePDF(
+    @Param('cuadroFirmasId', ParseIntPipe) cuadroFirmasId: number,
+    @Res() res: Response,
+  ) {
+    try {
+      const pdfContent =
+        await this.documentsService.extractPDFContent(cuadroFirmasId);
+
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Transfer-Encoding', 'chunked');
+      res.status(HttpStatus.OK);
+      if (typeof res.flushHeaders === 'function') {
+        res.flushHeaders();
+      }
+
+      let stream: AsyncIterable<unknown>;
+      try {
+        stream = await this.aiService.summarizePDF(pdfContent);
+      } catch (iaError) {
+        const iaMessage =
+          iaError instanceof Error ? iaError.message : `${iaError}`;
+        this.logger.error(
+          `No se pudo iniciar el resumen con IA para cuadro de firmas ${cuadroFirmasId}: ${iaMessage}`,
+        );
+        throw new HttpException(
+          'No se pudo generar el resumen con IA.',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      for await (const event of stream as AsyncIterable<any>) {
+        if (event?.type === 'response.output_text.delta') {
+          const chunk: string = event.delta ?? '';
+          if (chunk) {
+            const preview = chunk.replace(/\s+/g, ' ').slice(0, 60);
+            this.logger.debug(
+              `AI chunk (${chunk.length} chars): ${preview}${
+                chunk.length > preview.length ? '…' : ''
+              }`,
+            );
+            res.write(chunk);
+          }
+        } else if (event?.type === 'response.refusal.delta') {
+          throw new HttpException(
+            'El modelo rechazó generar el resumen solicitado.',
+            HttpStatus.BAD_GATEWAY,
+          );
+        } else if (event?.type === 'response.error') {
+          const message =
+            event.error?.message ?? 'No se pudo generar el resumen con IA.';
+          throw new HttpException(message, HttpStatus.BAD_GATEWAY);
+        }
+      }
+
+      res.end();
+    } catch (error) {
+      const errorMessage =
+        error instanceof HttpException
+          ? JSON.stringify(error.getResponse())
+          : error instanceof Error
+            ? error.message
+            : `${error}`;
+      this.logger.error(
+        `Error al resumir PDF del cuadro de firmas ${cuadroFirmasId}: ${errorMessage}`,
+      );
+
+      if (res.headersSent) {
+        res.write('\n\n**[Error]** No se pudo completar el resumen.\n');
+        res.end();
+        return;
+      }
+
+      if (error instanceof HttpException) {
+        const status = error.getStatus();
+        const responseBody = error.getResponse();
+        res.status(status).json(
+          typeof responseBody === 'string'
+            ? { message: responseBody }
+            : responseBody,
+        );
+        return;
+      }
+
+      res
+        .status(HttpStatus.BAD_GATEWAY)
+        .json({ message: 'No se pudo generar el resumen.' });
+    }
   }
 
   @Post('plantilla')

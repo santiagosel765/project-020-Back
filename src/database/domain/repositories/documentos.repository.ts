@@ -9,4 +9,8 @@ export abstract class DocumentosRepository {
       [key: string]: any;
     },
   ): Promise<Prisma.BatchPayload>;
+
+  abstract findByCuadroFirmaID(
+    cuadroFirmaID: number,
+  ): Promise<{ nombre_archivo: string | null } | null>;
 }

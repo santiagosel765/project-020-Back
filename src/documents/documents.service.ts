@@ -503,6 +503,52 @@ export class DocumentsService {
     return this.pdfRepository.extractText(pdfBuffer);
   }
 
+  async extractPDFContent(cuadroFirmasId: number): Promise<string> {
+    await this.findCuadroFirmaPDF(cuadroFirmasId);
+
+    const documento = await this.documentosRepository.findByCuadroFirmaID(
+      cuadroFirmasId,
+    );
+
+    const nombreArchivo = documento?.nombre_archivo ?? null;
+    if (!nombreArchivo) {
+      throw new HttpException(
+        `No se encontró un documento asociado al cuadro de firmas ${cuadroFirmasId}.`,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    let pdfBuffer: Buffer;
+    try {
+      pdfBuffer = await this.awsService.getFileBuffer(nombreArchivo);
+    } catch (error) {
+      this.logger.error(
+        `No se pudo obtener el PDF ${nombreArchivo} del almacenamiento: ${error}`,
+      );
+      throw new HttpException(
+        'No se pudo obtener el archivo PDF asociado al cuadro de firmas.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const pdfContent = await this.pdfRepository.extractText(pdfBuffer);
+      if (!pdfContent?.trim()) {
+        throw new Error('El contenido del PDF está vacío');
+      }
+
+      return pdfContent;
+    } catch (error) {
+      this.logger.error(
+        `No se pudo extraer el contenido del PDF para el cuadro de firmas ${cuadroFirmasId}: ${error}`,
+      );
+      throw new HttpException(
+        'No se pudo extraer el contenido del PDF asociado al cuadro de firmas.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
   /**
    * Genera y almacena una nueva plantilla HTML personalizada para una empresa.
    *

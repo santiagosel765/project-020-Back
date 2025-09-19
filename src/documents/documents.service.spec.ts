@@ -27,6 +27,7 @@ jest.mock('src/aws/aws.service', () => ({
 import { DocumentsService } from './documents.service';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import { type PdfRepository } from '../pdf/domain/repositories/pdf.repository';
+import { HttpStatus } from '@nestjs/common';
 
 const createService = () => {
   const pdfRepository: jest.Mocked<PdfRepository> = {
@@ -69,7 +70,10 @@ const createService = () => {
     agregarHistorialCuadroFirma: jest.fn().mockResolvedValue({} as any),
   } as any;
 
-  const documentosRepository = {} as any;
+  const documentosRepository = {
+    updateDocumentoByCuadroFirmaID: jest.fn(),
+    findByCuadroFirmaID: jest.fn(),
+  } as any;
   const pdfGeneratorRepository = {} as any;
 
   const pdfBaseBuffer = Buffer.from('PDF_BASE');
@@ -94,6 +98,7 @@ const createService = () => {
     awsService,
     cuadroFirmasRepository,
     pdfBaseBuffer,
+    documentosRepository,
   };
 };
 
@@ -164,5 +169,50 @@ describe('DocumentsService.signDocument', () => {
       null,
     );
     expect(awsService.uploadFile).toHaveBeenCalled();
+  });
+});
+
+describe('DocumentsService.extractPDFContent', () => {
+  it('obtiene el contenido del PDF desde almacenamiento y lo extrae', async () => {
+    const {
+      service,
+      documentosRepository,
+      awsService,
+      pdfRepository,
+      pdfBaseBuffer,
+    } = createService();
+
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue({
+      nombre_archivo: 'archivo.pdf',
+    });
+    pdfRepository.extractText.mockResolvedValue('contenido extraído');
+
+    await expect(service.extractPDFContent(42)).resolves.toBe(
+      'contenido extraído',
+    );
+    expect(documentosRepository.findByCuadroFirmaID).toHaveBeenCalledWith(42);
+    expect(awsService.getFileBuffer).toHaveBeenCalledWith('archivo.pdf');
+    expect(pdfRepository.extractText).toHaveBeenCalledWith(pdfBaseBuffer);
+  });
+
+  it('lanza 404 si no existe un documento asociado al cuadro de firmas', async () => {
+    const { service, documentosRepository } = createService();
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue(null);
+
+    await expect(service.extractPDFContent(99)).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+    });
+  });
+
+  it('lanza 400 si no se puede extraer el contenido del PDF', async () => {
+    const { service, documentosRepository, pdfRepository } = createService();
+    documentosRepository.findByCuadroFirmaID.mockResolvedValue({
+      nombre_archivo: 'archivo.pdf',
+    });
+    pdfRepository.extractText.mockResolvedValue('   ');
+
+    await expect(service.extractPDFContent(7)).rejects.toMatchObject({
+      status: HttpStatus.BAD_REQUEST,
+    });
   });
 });

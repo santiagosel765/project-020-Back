@@ -1,37 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { AIProvider } from './providers/ai-provider.interface';
 import { OpenAiProvider } from './providers/open-ai.provider';
 
 @Injectable()
 export class AiService {
-  private providers: AIProvider[];
+  constructor(private readonly openai: OpenAiProvider) {}
 
-  constructor() {
-    this.providers = [
-      new OpenAiProvider(),
-    ]
+  generateText(prompt: string) {
+    return this.openai.generateText(prompt);
   }
 
-  async generateText( prompt: any ) {
-    for(const provider of this.providers) {
-      try {
-        const result = await provider.generateText(prompt);
-        if(result) return result;
-      } catch (error) {
-        throw new Error(`Provider failed: ${error}`);
-      }
-    }
+  summarizePDF(pdfContent: string) {
+    return this.openai.summarizePDF(pdfContent);
   }
-
-  async summarizePDF( pdfContent: string ) {
-    for(const provider of this.providers) {
-      try {
-        const result = await provider.summarizePDF(pdfContent);
-        if(result) return result;
-      } catch (error) {
-        throw new Error(`Provider failed: ${error}`);
-      }
-    }
-  }
-
 }
