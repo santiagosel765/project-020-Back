@@ -6,34 +6,29 @@ import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 
 const documentsServiceMock = {
   listByUser: jest.fn().mockResolvedValue({
-    status: HttpStatus.ACCEPTED,
-    data: {
-      asignaciones: [
-        {
-          cuadro_firma: {
-            id: 1,
-            firmantesResumen: [
-              {
-                id: 2,
-                nombre: 'John Doe',
-                iniciales: 'JD',
-                urlFoto: null,
-                responsabilidad: 'Elabora',
-              },
-            ],
-          },
+    items: [
+      {
+        cuadro_firma: {
+          id: 1,
+          firmantesResumen: [
+            {
+              id: 2,
+              nombre: 'John Doe',
+              iniciales: 'JD',
+              urlFoto: null,
+              responsabilidad: 'Elabora',
+            },
+          ],
         },
-      ],
-      meta: {
-        totalCount: 1,
-        page: 1,
-        limit: 10,
-        totalPages: 1,
-        lastPage: 1,
-        hasNextPage: false,
-        hasPrevPage: false,
       },
-    },
+    ],
+    page: 1,
+    limit: 10,
+    sort: 'desc',
+    total: 1,
+    pages: 1,
+    hasPrev: false,
+    hasNext: false,
   }),
   getUsuariosFirmantesCuadroFirmas: jest.fn().mockResolvedValue({
     status: HttpStatus.ACCEPTED,
@@ -55,41 +50,36 @@ const documentsServiceMock = {
     ],
   }),
   listSupervision: jest.fn().mockResolvedValue({
-    status: HttpStatus.ACCEPTED,
-    data: {
-      documentos: [
-        {
-          id: 30,
-          titulo: 'Documento de Prueba 01',
-          descripcion: 'Documento de Prueba descripcion 01',
-          codigo: 'PR-001',
-          version: '2.0',
-          add_date: '2025-09-14T10:35:23.313Z',
-          estado_firma: { id: 4, nombre: 'Pendiente' },
-          empresa: { id: 1, nombre: 'FGE' },
-          diasTranscurridos: 0,
-          descripcionEstado: 'Cuadro de firmas generado',
-          firmantesResumen: [
-            {
-              id: 46,
-              nombre: 'Admin User',
-              iniciales: 'AU',
-              urlFoto: null,
-              responsabilidad: 'Elabora',
-            },
-          ],
-        },
-      ],
-      meta: {
-        totalCount: 1,
-        page: 1,
-        limit: 10,
-        totalPages: 1,
-        lastPage: 1,
-        hasNextPage: false,
-        hasPrevPage: false,
+    items: [
+      {
+        id: 30,
+        titulo: 'Documento de Prueba 01',
+        descripcion: 'Documento de Prueba descripcion 01',
+        codigo: 'PR-001',
+        version: '2.0',
+        add_date: '2025-09-14T10:35:23.313Z',
+        estado_firma: { id: 4, nombre: 'Pendiente' },
+        empresa: { id: 1, nombre: 'FGE' },
+        diasTranscurridos: 0,
+        descripcionEstado: 'Cuadro de firmas generado',
+        firmantesResumen: [
+          {
+            id: 46,
+            nombre: 'Admin User',
+            iniciales: 'AU',
+            urlFoto: null,
+            responsabilidad: 'Elabora',
+          },
+        ],
       },
-    },
+    ],
+    page: 1,
+    limit: 10,
+    sort: 'desc',
+    total: 1,
+    pages: 1,
+    hasPrev: false,
+    hasNext: false,
   }),
   statsSupervision: jest.fn().mockResolvedValue({
     status: HttpStatus.OK,
@@ -210,17 +200,14 @@ describe('DocumentsController (e2e)', () => {
       .get('/documents/cuadro-firmas/by-user/1?page=1&limit=10')
       .expect(HttpStatus.OK);
 
-    expect(
-      res.body.data.asignaciones[0].cuadro_firma.firmantesResumen,
-    ).toBeDefined();
-    expect(res.body.data.meta).toEqual({
-      totalCount: 1,
+    expect(res.body.items[0].cuadro_firma.firmantesResumen).toBeDefined();
+    expect(res.body).toMatchObject({
+      total: 1,
       page: 1,
       limit: 10,
-      totalPages: 1,
-      lastPage: 1,
-      hasNextPage: false,
-      hasPrevPage: false,
+      pages: 1,
+      hasNext: false,
+      hasPrev: false,
     });
   });
 
@@ -239,8 +226,8 @@ describe('DocumentsController (e2e)', () => {
       .get('/documents/cuadro-firmas/documentos/supervision?page=1&limit=10')
       .expect(HttpStatus.OK);
 
-    expect(res.body.data.documentos[0].firmantesResumen).toBeDefined();
-    expect(res.body.data.meta.totalCount).toBe(1);
+    expect(res.body.items[0].firmantesResumen).toBeDefined();
+    expect(res.body.total).toBe(1);
   });
 
   it('supervision stats returns counts', async () => {
