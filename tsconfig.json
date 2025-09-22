@@ -15,7 +15,7 @@
     "outDir": "./dist",
     "baseUrl": ".",
     "paths": {
-      "generated/prisma": ["prisma/generated/prisma"]
+      "generated/prisma": ["generated/prisma"]
     },
     "incremental": true,
     "skipLibCheck": true,
@@ -25,5 +25,5 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "include": ["src", "prisma/generated/prisma"]
+  "include": ["src", "generated/prisma"]
 }

@@ -34,6 +34,7 @@ import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
 import { AiService } from 'src/ai/ai.service';
 import type { Response } from 'express';
+import { UpdateNotificationDto } from './dto/update-notification.dto';
 
 @Controller('documents')
 export class DocumentsController {
@@ -83,26 +84,23 @@ export class DocumentsController {
       );
     }
 
-    return this.documentsService.signDocument(
-      firmaCuadroDto,
-      signatureBuffer,
-    );
+    return this.documentsService.signDocument(firmaCuadroDto, signatureBuffer);
   }
 
   @Patch('cuadro-firmas/documento/:id')
   @UseInterceptors(FilesInterceptor('file', 1))
   updateDocumentoAsignacion(
     @UploadedFiles() files: Express.Multer.File[],
-    @Param("id") id: string,
-    @Body('idUser') idUser: string, 
-    @Body('observaciones') observaciones: string, 
+    @Param('id') id: string,
+    @Body('idUser') idUser: string,
+    @Body('observaciones') observaciones: string,
   ) {
     const [pdfDocument] = files;
     return this.documentsService.updateDocumentoAsignacion(
       +id,
       +idUser,
       observaciones,
-      pdfDocument.buffer
+      pdfDocument.buffer,
     );
   }
 
@@ -118,8 +116,8 @@ export class DocumentsController {
     @Res() res: Response,
   ) {
     try {
-      const pdfContent =
-        await this.documentsService.extractPDFContent(cuadroFirmasId);
+      const resumenDB =
+        await this.documentsService.getResumenDocumento(cuadroFirmasId);
 
       res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache');
@@ -129,7 +127,16 @@ export class DocumentsController {
         res.flushHeaders();
       }
 
-      let stream: AsyncIterable<unknown>;
+      if (resumenDB && resumenDB.trim() !== '') {
+        res.write(resumenDB);
+        res.end();
+        return;
+      }
+
+      const pdfContent =
+        await this.documentsService.extractPDFContent(cuadroFirmasId);
+
+      let stream: AsyncIterable<any>;
       try {
         stream = await this.aiService.summarizePDF(pdfContent);
       } catch (iaError) {
@@ -144,16 +151,12 @@ export class DocumentsController {
         );
       }
 
-      for await (const event of stream as AsyncIterable<any>) {
+      let fullResponse = '';
+      for await (const event of stream) {
         if (event?.type === 'response.output_text.delta') {
           const chunk: string = event.delta ?? '';
           if (chunk) {
-            const preview = chunk.replace(/\s+/g, ' ').slice(0, 60);
-            this.logger.debug(
-              `AI chunk (${chunk.length} chars): ${preview}${
-                chunk.length > preview.length ? '…' : ''
-              }`,
-            );
+            fullResponse += chunk;
             res.write(chunk);
           }
         } else if (event?.type === 'response.refusal.delta') {
@@ -168,6 +171,10 @@ export class DocumentsController {
         }
       }
 
+      await this.documentsService.updateDocumentoByCuadroFirmaId(
+        cuadroFirmasId,
+        { resumen: fullResponse },
+      );
       res.end();
     } catch (error) {
       const errorMessage =
@@ -189,11 +196,13 @@ export class DocumentsController {
       if (error instanceof HttpException) {
         const status = error.getStatus();
         const responseBody = error.getResponse();
-        res.status(status).json(
-          typeof responseBody === 'string'
-            ? { message: responseBody }
-            : responseBody,
-        );
+        res
+          .status(status)
+          .json(
+            typeof responseBody === 'string'
+              ? { message: responseBody }
+              : responseBody,
+          );
         return;
       }
 
@@ -215,10 +224,16 @@ export class DocumentsController {
 
   @Get('cuadro-firmas/:id')
   async findCuadroFirmas(@Param('id') id: string) {
-    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id)
-    const urlCuadroFirmasPDF = await this.documentsService.getDocumentoURLBucket(cuadroFirmasDB.nombre_pdf)
-    const documentoDB = await this.documentsService.getDocumentoByCuadroFirmaID(+id);
-    const urlDocumento = await this.documentsService.getDocumentoURLBucket(documentoDB.data.nombre_archivo)
+    const cuadroFirmasDB = await this.documentsService.findCuadroFirma(+id);
+    const urlCuadroFirmasPDF =
+      await this.documentsService.getDocumentoURLBucket(
+        cuadroFirmasDB.nombre_pdf,
+      );
+    const documentoDB =
+      await this.documentsService.getDocumentoByCuadroFirmaID(+id);
+    const urlDocumento = await this.documentsService.getDocumentoURLBucket(
+      documentoDB.data.nombre_archivo,
+    );
     return {
       urlCuadroFirmasPDF: urlCuadroFirmasPDF.data.data,
       urlDocumento: urlDocumento.data.data,
@@ -314,7 +329,7 @@ export class DocumentsController {
   getAllEstadosFirma() {
     return this.documentsService.getAllEstadosFirma();
   }
-  
+
   @Get('cuadro-firmas/historial/:id')
   getHistorialCuadroFirmas(
     @Param('id') id: string,
@@ -322,15 +337,12 @@ export class DocumentsController {
   ) {
     return this.documentsService.getHistorialCuadroFirmas(+id, paginationDto);
   }
-  
 
   @Get('cuadro-firmas/firmantes/:id')
-  getUsuariosFirmantesCuadroFirmas(
-    @Param('id') id: string
-  ) {
+  getUsuariosFirmantesCuadroFirmas(@Param('id') id: string) {
     return this.documentsService.getUsuariosFirmantesCuadroFirmas(+id);
   }
-  
+
   @Get('cuadro-firmas/documentos/supervision')
   async listSupervision(@Query() q: ListQueryDto) {
     return this.documentsService.listSupervision(q);
@@ -353,29 +365,41 @@ export class DocumentsController {
   ) {
     return this.documentsService.statsByUser(Number(userId), q.search);
   }
-  
-  
+
   @Patch('cuadro-firmas/estado')
   cambiarEstadoAsignacion(
     @Body() updateEstadoAsignacionDto: UpdateEstadoAsignacionDto,
-    
   ) {
     return this.documentsService.updateEstadoAsignacion(
-      updateEstadoAsignacionDto
+      updateEstadoAsignacionDto,
     );
   }
+
   
+  @Patch('cuadro-firmas/notificaciones/leer')
+  updateNotificationByUserId(
+    // @Body() updateNotificationDto: UpdateNotificationDto,
+    @Body('userId', ParseIntPipe) userId: number,
+    @Body('notificationId', ParseIntPipe) notificationId: number,
+  ) {
+    return this.documentsService.updateNotificationByUserId(notificationId, userId);
+  }
+  
+  @Get('cuadro-firmas/notificaciones/:userId')
+  getNotificationsByUser(@Param('userId', ParseIntPipe) userId: number) {
+    return this.documentsService.getNotificationsByUser(userId);
+  }
   @Patch('cuadro-firmas/:id')
   updateCuadroFirmas(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateCuadroFirmaDto: UpdateCuadroFirmaDto,
     @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
   ) {
     return this.documentsService.updateCuadroFirmas(
-      +id,
+      id,
       updateCuadroFirmaDto,
       responsables,
     );
   }
-
+  
 }

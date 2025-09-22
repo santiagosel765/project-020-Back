@@ -9,7 +9,6 @@ import { PDF_REPOSITORY } from '../pdf/domain/repositories/pdf.repository';
 import type { PdfRepository } from '../pdf/domain/repositories/pdf.repository';
 import fs from 'fs';
 import path from 'path';
-import { SignDocumentDto } from './dto/sign-document.dto';
 import { PDF_GENERATION_REPOSITORY } from 'src/pdf/domain/repositories/pdf-generation.repository';
 import type { PdfGenerationRepository } from 'src/pdf/domain/repositories/pdf-generation.repository';
 import { CreatePlantillaDto } from './dto/create-plantilla.dto';
@@ -20,14 +19,12 @@ import {
   FirmanteUserDto,
   ResponsablesFirmaDto,
 } from './dto/create-cuadro-firma.dto';
-import { formatCurrentDate } from 'src/helpers/formatDate';
 import { AddHistorialCuadroFirmaDto } from './dto/add-historial-cuadro-firma.dto';
 import { HttpResponse } from 'src/interfaces/http-response.interfaces';
 import { UpdateCuadroFirmaDto } from './dto/update-cuadro-firma.dto';
 import { CuadroFirmaDB } from './interfaces/cuadro-firma.interface';
 import { FirmaCuadroDto } from './dto/firma-cuadro.dto';
 import { AWSService } from 'src/aws/aws.service';
-import { generarFilasFirmas } from './utils/generar-filas-firma.utils';
 import {
   CUADRO_FIRMAS_REPOSITORY,
   CuadroFirmaRepository,
@@ -49,6 +46,12 @@ import {
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
+import {
+  NOTIFICACIONES_REPOSITORY,
+  NotificacionesRepository,
+} from 'src/database/domain/repositories/notificaciones.repository';
+import { CreateNotificationDto } from './dto/create-notification.dto';
+import { UpdateNotificationDto } from './dto/update-notification.dto';
 
 @Injectable()
 export class DocumentsService {
@@ -62,6 +65,8 @@ export class DocumentsService {
   constructor(
     @Inject(CUADRO_FIRMAS_REPOSITORY)
     private readonly cuadroFirmasRepository: CuadroFirmaRepository,
+    @Inject(NOTIFICACIONES_REPOSITORY)
+    private readonly notificacionesRepository: NotificacionesRepository,
     @Inject(DOCUMENTOS_REPOSITORY)
     private readonly documentosRepository: DocumentosRepository,
     @Inject(PDF_REPOSITORY)
@@ -347,6 +352,9 @@ export class DocumentsService {
     file: Buffer,
   ) {
     try {
+      const cuadroFirmaDB =
+        await this.cuadroFirmasRepository.findCuadroFirmaById(id);
+
       const documentoDB = await this.getDocumentoByCuadroFirmaID(id);
       await this.awsService.uploadFile(file, documentoDB?.data.nombre_archivo!);
 
@@ -370,6 +378,33 @@ export class DocumentsService {
       await this.cuadroFirmasRepository.agregarHistorialCuadroFirma(
         addHistorialCuadroFirmaDto,
       );
+
+      // ? Notificar responsables
+      const createNotificationDto: CreateNotificationDto = {
+        titulo: `Actualización Documento de Asignación "${cuadroFirmaDB.titulo}"`,
+        contenido: `Se ha actualizado el documento para la asignación "${cuadroFirmaDB.titulo}"`,
+        tipo: 'Actualización de documento',
+        referenciaId: cuadroFirmaDB?.id ?? 0,
+        referenciaTipo: 'Cuadro de firma',
+      };
+
+      const createdNotification =
+        await this.notificacionesRepository.createNotification(
+          createNotificationDto,
+        );
+
+      const responsables =
+        await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(
+          cuadroFirmaDB.id,
+        );
+
+      responsables.forEach(async (r) => {
+        await this.notificacionesRepository.createUserNotification(
+          createdNotification.id,
+          r.user.id,
+        );
+      });
+
       return {
         status: HttpStatus.ACCEPTED,
         data: 'Documento actualizado exitosamente',
@@ -393,7 +428,7 @@ export class DocumentsService {
     );
 
     // ? Validar que las personas firmen en orden
-    await this.cuadroFirmasRepository.validarOrdenFirma(firmaCuadroDto);
+    // await this.cuadroFirmasRepository.validarOrdenFirma(firmaCuadroDto);
 
     const pdfBuffer = await this.awsService.getFileBuffer(
       cuadroFirmaDB?.nombre_pdf!,
@@ -426,23 +461,14 @@ export class DocumentsService {
     );
 
     try {
-      // await this.prisma.cuadro_firma.update({
-      //   where: {
-      //     id: +firmaCuadroDto.cuadroFirmaId,
-      //   },
-      //   data: {
-      //     pdf: null,
-      //   },
-      // });
-
+      const observacion = `${firmaCuadroDto.nombreUsuario}, responsable de "${firmaCuadroDto.nombreResponsabilidad}" ha firmado el documento`;
       const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
         cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
         estadoFirmaId: 2, // ? En Progreso
         userId: +firmaCuadroDto.userId,
-        observaciones: `${firmaCuadroDto.nombreUsuario}, responsable de "${firmaCuadroDto.nombreResponsabilidad}" ha firmado el documento`,
+        observaciones: observacion,
       };
 
-      
       await this.prisma.cuadro_firma.update({
         where: {
           id: +firmaCuadroDto.cuadroFirmaId,
@@ -459,28 +485,37 @@ export class DocumentsService {
           cuadroFirmaId: +firmaCuadroDto.cuadroFirmaId,
           userId: +firmaCuadroDto.userId,
           responsabilidadId: +firmaCuadroDto.responsabilidadId,
-        }, 
+        },
         {
           estaFirmado: true,
           fecha_firma: new Date(),
-        }
+        },
       );
 
-      // await this.prisma.cuadro_firma_user.update({
-      //   where: {
-      //     // ? Llave compuesta
-      //     cuadro_firma_id_user_id_responsabilidad_id: {
-      //       cuadro_firma_id: +firmaCuadroDto.cuadroFirmaId,
-      //       user_id: +firmaCuadroDto.userId,
-      //       responsabilidad_id: +firmaCuadroDto.responsabilidadId,
-      //     },
-      //   },
+      const createNotificationDto: CreateNotificationDto = {
+        titulo: `Documento firmado`,
+        contenido: observacion,
+        tipo: 'Firma de documento',
+        referenciaId: +firmaCuadroDto.cuadroFirmaId,
+        referenciaTipo: 'Cuadro de firma',
+        // userId: +firmaCuadroDto.userId,
+      };
 
-      //   data: {
-      //     estaFirmado: true,
-      //     fecha_firma: new Date(),
-      //   },
-      // });
+      const createdNotification =
+        await this.notificacionesRepository.createNotification(
+          createNotificationDto,
+        );
+
+      const responsables =
+        await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(
+          +firmaCuadroDto.cuadroFirmaId,
+        );
+      responsables.forEach(async (r) => {
+        await this.notificacionesRepository.createUserNotification(
+          createdNotification.id,
+          r.user.id,
+        );
+      });
 
       await this.awsService.uploadFile(
         signedPdfBuffer!,
@@ -503,12 +538,47 @@ export class DocumentsService {
     return this.pdfRepository.extractText(pdfBuffer);
   }
 
+  async updateDocumentoByCuadroFirmaId(
+    cuadroFirmasId: number,
+    data: { [key: string]: any },
+  ) {
+    try {
+      const documento =
+        await this.documentosRepository.findByCuadroFirmaID(cuadroFirmasId);
+
+      if (!documento) {
+        throw new HttpException(
+          `No se encontró un documento asociado al cuadro de firmas ${cuadroFirmasId}.`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.documentosRepository.updateDocumento(documento!.id, data);
+
+      return {
+        status: HttpStatus.ACCEPTED,
+        data: true,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Problemas al actualizar docuemtno: ${error}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getResumenDocumento(cuadroFirmasId: number) {
+    await this.findCuadroFirmaPDF(cuadroFirmasId);
+    const documento =
+      await this.documentosRepository.findByCuadroFirmaID(cuadroFirmasId);
+    return documento?.resumen;
+  }
+
   async extractPDFContent(cuadroFirmasId: number): Promise<string> {
     await this.findCuadroFirmaPDF(cuadroFirmasId);
 
-    const documento = await this.documentosRepository.findByCuadroFirmaID(
-      cuadroFirmasId,
-    );
+    const documento =
+      await this.documentosRepository.findByCuadroFirmaID(cuadroFirmasId);
 
     const nombreArchivo = documento?.nombre_archivo ?? null;
     if (!nombreArchivo) {
@@ -563,9 +633,8 @@ export class DocumentsService {
       );
     }
 
-    const documento = await this.documentosRepository.findByCuadroFirmaID(
-      cuadroFirmasId,
-    );
+    const documento =
+      await this.documentosRepository.findByCuadroFirmaID(cuadroFirmasId);
     const documentoKey = documento?.nombre_archivo ?? null;
 
     if (!documentoKey) {
@@ -634,8 +703,8 @@ export class DocumentsService {
 
     try {
       return await this.pdfRepository.mergePDFs([
-        documentoBuffer,
         cuadroFirmasBuffer,
+        documentoBuffer,
       ]);
     } catch (error) {
       this.logger.error(
@@ -816,13 +885,6 @@ export class DocumentsService {
         );
       }
 
-      await this.asignarResponsablesCuadroFirmas(
-        responsablesHydrated,
-        cuadroFirmaDB.id,
-      );
-
-      // ? Subir documento negocio a S3
-
       // ? Crear documento
       await this.prisma.documento.create({
         data: {
@@ -833,6 +895,25 @@ export class DocumentsService {
           url_documento: fileKey,
         },
       });
+
+      const createNotificationDto: CreateNotificationDto = {
+        titulo: `Creación de Asignación "${cuadroFirmaDB.titulo}"`,
+        contenido: `Se ha creado la asignación para el documento "${cuadroFirmaDB.titulo}"`,
+        tipo: 'Firma de documento',
+        referenciaId: cuadroFirmaDB?.id ?? 0,
+        referenciaTipo: 'Cuadro de firma',
+      };
+
+      const createdNotification =
+        await this.notificacionesRepository.createNotification(
+          createNotificationDto,
+        );
+
+      await this.asignarResponsablesCuadroFirmas(
+        responsablesHydrated,
+        cuadroFirmaDB.id,
+        createdNotification.id,
+      );
 
       return cuadroFirmaDB;
     } catch (error) {
@@ -846,16 +927,35 @@ export class DocumentsService {
   async asignarResponsablesCuadroFirmas(
     responsables: ResponsablesFirmaDto,
     cuadroFirmaID: number,
+    notificacionId?: number,
   ) {
     await this.agregarResponsableCuadroFirma(
       responsables?.elabora!,
       cuadroFirmaID,
     );
+    if (notificacionId) {
+      await this.notificacionesRepository.createUserNotification(
+        notificacionId,
+        responsables?.elabora?.userId!,
+      );
+    }
     responsables?.revisa?.forEach(async (f) => {
       await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
+      if (notificacionId) {
+        await this.notificacionesRepository.createUserNotification(
+          notificacionId,
+          f.userId,
+        );
+      }
     });
     responsables?.aprueba?.forEach(async (f) => {
       await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
+      if (notificacionId) {
+        await this.notificacionesRepository.createUserNotification(
+          notificacionId,
+          f.userId,
+        );
+      }
     });
   }
 
@@ -1075,6 +1175,7 @@ export class DocumentsService {
   async findCuadroFirmaPDF(id: number): Promise<{
     pdf: Uint8Array<ArrayBufferLike> | null;
     nombre_pdf: string | null;
+    titulo: string | null;
   } | null> {
     try {
       const cuadroFirmaPDF = await this.prisma.cuadro_firma.findFirst({
@@ -1082,6 +1183,7 @@ export class DocumentsService {
         select: {
           pdf: true,
           nombre_pdf: true,
+          titulo: true,
         },
       });
 
@@ -1095,6 +1197,7 @@ export class DocumentsService {
       return {
         pdf: cuadroFirmaPDF.pdf,
         nombre_pdf: cuadroFirmaPDF.nombre_pdf,
+        titulo: cuadroFirmaPDF.titulo,
       };
     } catch (error) {
       return this.handleDBErrors(
@@ -1233,7 +1336,10 @@ export class DocumentsService {
   async getHistorialCuadroFirmas(id: number, paginationDto: PaginationDto) {
     try {
       const historial =
-        await this.cuadroFirmasRepository.getHistorialCuadroFirmas(id, paginationDto);
+        await this.cuadroFirmasRepository.getHistorialCuadroFirmas(
+          id,
+          paginationDto,
+        );
 
       return {
         status: HttpStatus.ACCEPTED,
@@ -1250,9 +1356,41 @@ export class DocumentsService {
   async updateEstadoAsignacion(
     updateEstadoAsignacionDto: UpdateEstadoAsignacionDto,
   ) {
-    const isUpdated = await this.cuadroFirmasRepository.updateEstadoFirma(
+    const cuadroFirmaDB = await this.cuadroFirmasRepository.findCuadroFirmaById(
+      updateEstadoAsignacionDto.idCuadroFirma,
+    );
+    await this.cuadroFirmasRepository.updateEstadoFirma(
       updateEstadoAsignacionDto,
     );
+
+    // TODO: Notificar usuarios
+
+    const contenido = `El documento ha pasado a estado "${updateEstadoAsignacionDto.nombreEstadoFirma}".`;
+    const createNotificationDto: CreateNotificationDto = {
+      titulo: `Actualización Estado de Asignación "${cuadroFirmaDB.titulo}"`,
+      contenido,
+      tipo: 'Actualización de estado',
+      referenciaId: cuadroFirmaDB?.id ?? 0,
+      referenciaTipo: 'Cuadro de firma',
+    };
+
+    const createdNotification =
+      await this.notificacionesRepository.createNotification(
+        createNotificationDto,
+      );
+
+    const responsables =
+      await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(
+        cuadroFirmaDB.id,
+      );
+
+    responsables.forEach(async (r) => {
+      await this.notificacionesRepository.createUserNotification(
+        createdNotification.id,
+        r.user.id,
+      );
+    });
+
     return {
       status: HttpStatus.ACCEPTED,
       data: 'Estado de asignación actualizado exitosamente',
@@ -1280,55 +1418,7 @@ export class DocumentsService {
   }
 
   async listSupervision(q: ListQueryDto) {
-    const { page, limit, sort, skip, take } = normalizePagination(q);
-
-    const where = this.buildWhere(q.search, q.estado);
-    const orderBy = stableOrder(sort);
-
-    logPaginationDebug('DocumentsService.listSupervision', 'before', {
-      page,
-      limit,
-      sort,
-      skip,
-      take,
-      orderBy,
-    });
-
-    const [total, rows] = await this.prisma.$transaction([
-      this.prisma.cuadro_firma.count({ where }),
-      this.prisma.cuadro_firma.findMany({
-        where,
-        orderBy,
-        skip,
-        take,
-        include: {
-          estado_firma: true,
-          empresa: true,
-          cuadro_firma_user: {
-            include: { user: true, responsabilidad_firma: true },
-          },
-        },
-      }),
-    ]);
-
-    logPaginationDebug('DocumentsService.listSupervision', 'after', {
-      total,
-      count: total,
-      firstId: rows[0]?.id ?? null,
-      lastId: rows.length > 0 ? rows[rows.length - 1]?.id ?? null : null,
-      returned: rows.length,
-    });
-
-    const documentos = await Promise.all(rows.map(async (row) => {
-      const { cuadro_firma_user = [], ...rest } = row;
-      return {
-        ...rest,
-        cuadro_firma_user,
-        firmantesResumen: await this.mapFirmantesResumen(cuadro_firma_user),
-      };
-    }));
-
-    return buildPaginationResult(documentos, total, page, limit, sort);
+    return await this.cuadroFirmasRepository.listSupervision(q);
   }
 
   async listByUser(userId: number, q: ListQueryDto) {
@@ -1370,26 +1460,33 @@ export class DocumentsService {
       total,
       count: total,
       firstId: rows[0]?.id ?? null,
-      lastId: rows.length > 0 ? rows[rows.length - 1]?.id ?? null : null,
+      lastId: rows.length > 0 ? (rows[rows.length - 1]?.id ?? null) : null,
       returned: rows.length,
     });
 
-    const asignaciones = await Promise.all(rows.map(async (row) => {
-      const { cuadro_firma_user = [], ...rest } = row;
-      return {
-        cuadro_firma: {
-          ...rest,
-          cuadro_firma_user,
-          firmantesResumen: await this.mapFirmantesResumen(cuadro_firma_user),
-        },
-      };
-    }));
+    const asignaciones = await Promise.all(
+      rows.map(async (row) => {
+        const { cuadro_firma_user = [], ...rest } = row;
+        return {
+          cuadro_firma: {
+            ...rest,
+            cuadro_firma_user,
+            firmantesResumen: await this.mapFirmantesResumen(cuadro_firma_user),
+          },
+        };
+      }),
+    );
     return buildPaginationResult(asignaciones, total, page, limit, sort);
   }
 
   async statsSupervision(search?: string) {
     const whereBase = this.buildWhere(search, undefined);
-    const estados = ['Pendiente', 'En Progreso', 'Rechazado', 'Completado'] as const;
+    const estados = [
+      'Pendiente',
+      'En Progreso',
+      'Rechazado',
+      'Completado',
+    ] as const;
     const counts = await Promise.all(
       estados.map((estado) =>
         this.prisma.cuadro_firma.count({
@@ -1408,7 +1505,12 @@ export class DocumentsService {
 
   async statsByUser(userId: number, search?: string) {
     const whereDoc = this.buildWhere(search, undefined);
-    const estados = ['Pendiente', 'En Progreso', 'Rechazado', 'Completado'] as const;
+    const estados = [
+      'Pendiente',
+      'En Progreso',
+      'Rechazado',
+      'Completado',
+    ] as const;
     const counts = await Promise.all(
       estados.map((estado) =>
         this.prisma.cuadro_firma.count({
@@ -1430,4 +1532,21 @@ export class DocumentsService {
     });
     return { status: HttpStatus.OK, data: resumen };
   }
+
+  async getNotificationsByUser( userId: number ) {
+    const data = await this.notificacionesRepository.getNotificationsByUser( userId );
+    return {
+      status: HttpStatus.OK,
+      data,
+    }
+  }
+  async updateNotificationByUserId( notificationId: number, userId: number, ) {
+    
+    await this.notificacionesRepository.updateNotification( {notificationId, userId} );
+    return {
+      status: HttpStatus.OK,
+      data: true,
+    }
+  }
+
 }
