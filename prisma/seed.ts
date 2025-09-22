@@ -277,6 +277,8 @@ async function main() {
   const createdUsers: user[] = [];
 
   for (const u of usersBase) {
+  const hashed = await BcryptAdapter.hashPassword(u.pass); 
+
     const dbUser = await prisma.user.upsert({
       where: { correo_institucional: u.correo },
       update: {
@@ -290,7 +292,7 @@ async function main() {
         telefono: u.telefono ?? null,
         posicion_id: u.posicion_id ?? null,
         gerencia_id: u.gerencia_id ?? null,
-        password: BcryptAdapter.hashPassword(u.pass),
+        password: hashed, 
         activo: true,
       },
       create: {
@@ -305,7 +307,7 @@ async function main() {
         telefono: u.telefono ?? null,
         posicion_id: u.posicion_id ?? null,
         gerencia_id: u.gerencia_id ?? null,
-        password: BcryptAdapter.hashPassword(u.pass),
+        password: hashed, 
         activo: true,
       },
       select: { id: true, correo_institucional: true, codigo_empleado: true },

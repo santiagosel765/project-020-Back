@@ -1,9 +1,16 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import {
   cuadro_firma,
   cuadro_firma_estado_historial,
+  Prisma,
 } from 'generated/prisma';
 import { CuadroFirmaRepository } from '../domain/repositories/cuadro-firmas.repository';
 import { generarFilasFirmas } from 'src/documents/utils/generar-filas-firma.utils';
@@ -29,9 +36,19 @@ import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { joinWithSpace } from 'src/common/utils/strings';
 import { resolvePhotoUrl } from 'src/shared/helpers/file.helpers';
+import {
+  buildPaginationResult,
+  logPaginationDebug,
+  normalizePagination,
+  stableOrder,
+} from 'src/shared/utils/pagination';
+import { ListQueryDto } from 'src/documents/dto/list-query.dto';
+import { formatDateTime } from 'src/shared/utils/dates';
 
 @Injectable()
 export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
+  private logger = new Logger(PrismaCuadroFirmaRepository.name);
+
   constructor(
     private prisma: PrismaService,
     @Inject(PDF_REPOSITORY)
@@ -40,7 +57,32 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
     private readonly pdfGeneratorRepository: PdfGenerationRepository,
     private awsService: AWSService,
   ) {}
-  getSupervisionStats(): Promise<{ total: number; pendiente: number; enProgreso: number; rechazado: number; completado: number; }> {
+
+  async findCuadroFirmaById(cuadroFirmaId: number): Promise<cuadro_firma> {
+    try {
+      
+      const cuadroFirmaDB = await this.prisma.cuadro_firma.findFirst({ where: { id: cuadroFirmaId }});
+
+      if(!cuadroFirmaDB) {
+        throw new HttpException(`Cuadro de firma con ID "${ cuadroFirmaId }"`, HttpStatus.NOT_FOUND)
+      }
+
+      return cuadroFirmaDB;
+
+    } catch (error) {
+      throw new Error(
+        `Problemas al consultar cuadro de firmas con ID "${cuadroFirmaId}": ${error}`,
+      );
+    }
+  }
+
+  getSupervisionStats(): Promise<{
+    total: number;
+    pendiente: number;
+    enProgreso: number;
+    rechazado: number;
+    completado: number;
+  }> {
     throw new Error('Method not implemented.');
   }
 
@@ -512,47 +554,52 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
           u.apellido_casada,
         );
 
-      const asignaciones = await Promise.all(result.map(async (item) => {
-        const { user: usuarioAsignado, cuadro_firma } = item;
-        const { user: usuarioCreador, cuadro_firma_user, ...cuadroFirmaRest } =
-          cuadro_firma;
+      const asignaciones = await Promise.all(
+        result.map(async (item) => {
+          const { user: usuarioAsignado, cuadro_firma } = item;
+          const {
+            user: usuarioCreador,
+            cuadro_firma_user,
+            ...cuadroFirmaRest
+          } = cuadro_firma;
 
-        // Calcula días solo si el estado no es Rechazado ni Finalizado
-        let diasTranscurridos: number | undefined = undefined;
-        const estado = cuadroFirmaRest.estado_firma?.nombre?.toLowerCase();
-        if (estado !== 'rechazado' && estado !== 'finalizado') {
-          const fechaCreacion = cuadroFirmaRest.add_date;
-          const hoy = new Date();
-          diasTranscurridos = Math.floor(
-            (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
-              (1000 * 60 * 60 * 24),
+          // Calcula días solo si el estado no es Rechazado ni Finalizado
+          let diasTranscurridos: number | undefined = undefined;
+          const estado = cuadroFirmaRest.estado_firma?.nombre?.toLowerCase();
+          if (estado !== 'rechazado' && estado !== 'finalizado') {
+            const fechaCreacion = cuadroFirmaRest.add_date;
+            const hoy = new Date();
+            diasTranscurridos = Math.floor(
+              (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+          }
+
+          const firmantesResumen = await Promise.all(
+            (cuadro_firma_user ?? []).map(async (x: any) => ({
+              id: x.user.id,
+              nombre: buildFullName(x.user),
+              urlFoto: await resolvePhotoUrl(
+                this.awsService,
+                x.user?.url_foto ?? null,
+              ),
+              responsabilidad: x.responsabilidad_firma?.nombre ?? '',
+            })),
           );
-        }
 
-        const firmantesResumen = await Promise.all(
-          (cuadro_firma_user ?? []).map(async (x: any) => ({
-            id: x.user.id,
-            nombre: buildFullName(x.user),
-            urlFoto: await resolvePhotoUrl(
-              this.awsService,
-              x.user?.url_foto ?? null,
-            ),
-            responsabilidad: x.responsabilidad_firma?.nombre ?? '',
-          })),
-        );
-
-        return {
-          ...item,
-          usuarioAsignado,
-          usuarioCreador,
-          user: undefined,
-          cuadro_firma: {
-            ...cuadroFirmaRest,
-            diasTranscurridos,
-            firmantesResumen,
-          },
-        };
-      }));
+          return {
+            ...item,
+            usuarioAsignado,
+            usuarioCreador,
+            user: undefined,
+            cuadro_firma: {
+              ...cuadroFirmaRest,
+              diasTranscurridos,
+              firmantesResumen,
+            },
+          };
+        }),
+      );
 
       return {
         asignaciones: asignaciones as Asignacion[],
@@ -573,6 +620,238 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       );
     }
   }
+
+  private buildWhere(
+    search?: string,
+    estado?: string,
+  ): Prisma.cuadro_firmaWhereInput {
+    return {
+      AND: [
+        search
+          ? {
+              OR: [
+                { titulo: { contains: search, mode: 'insensitive' } },
+                { descripcion: { contains: search, mode: 'insensitive' } },
+                { codigo: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {},
+        estado ? { estado_firma: { nombre: estado } } : {},
+      ],
+    };
+  }
+
+  async listSupervision(q: ListQueryDto) {
+    try {
+      const { page, limit, sort, skip, take } = normalizePagination(q);
+
+      const where = this.buildWhere(q.search, q.estado);
+      const orderBy = stableOrder(sort);
+
+      const [total, rows] = await this.prisma.$transaction([
+        this.prisma.cuadro_firma.count({ where }),
+        this.prisma.cuadro_firma.findMany({
+          where,
+          orderBy,
+          skip,
+          take,
+          select: {
+            id: true,
+            titulo: true,
+            descripcion: true,
+            version: true,
+            codigo: true,
+            add_date: true,
+            updated_at: true,
+            nombre_pdf: true,
+            url_pdf: true,
+            user: {
+              select: {
+                id: true,
+                primer_nombre: true,
+                segundo_name: true,
+                primer_apellido: true,
+                segundo_apellido: true,
+                correo_institucional: true,
+                activo: true,
+              }
+            },
+            estado_firma: {
+              select: {
+                id: true,
+                nombre: true,
+              },
+            },
+            empresa: {
+              select: {
+                id: true,
+                nombre: true,
+              },
+            },
+            cuadro_firma_user: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    primer_nombre: true,
+                    segundo_name: true,
+                    primer_apellido: true,
+                    segundo_apellido: true,
+                    correo_institucional: true,
+                    activo: true,
+                  },
+                },
+                responsabilidad_firma: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ]);
+      logPaginationDebug('DocumentsService.listSupervision', 'after', {
+        total,
+        count: total,
+        firstId: rows[0]?.id ?? null,
+        lastId: rows.length > 0 ? (rows[rows.length - 1]?.id ?? null) : null,
+        returned: rows.length,
+      });
+
+      const documentos = await Promise.all(
+        rows.map(async (item) => {
+          // ? Calcula días solo si el estado no es Rechazado ni Finalizado
+          let diasTranscurridos: number | undefined = undefined;
+          const estado = item.estado_firma!.nombre?.toLowerCase();
+          if (estado !== 'rechazado' && estado !== 'finalizado') {
+            const fechaCreacion = item.add_date;
+            const hoy = new Date();
+            diasTranscurridos = Math.floor(
+              (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+          }
+          // ? Obtiene la observación más reciente del historial
+          const historial =
+            await this.prisma.cuadro_firma_estado_historial.findFirst({
+              where: { cuadro_firma_id: item.id },
+              orderBy: { fecha_observacion: 'desc' },
+            });
+
+          return {
+            ...item,
+            usuarioCreacion: item.user,
+            user: undefined,
+            diasTranscurridos,
+            add_date: formatDateTime( item.add_date),
+            updated_at: formatDateTime( item.updated_at),
+            descripcionEstado: historial?.observaciones,
+          };
+        }),
+      );
+
+      return buildPaginationResult(documentos, total, page, limit, sort);
+    } catch (error) {
+      throw new HttpException(
+        `Problemas al obtener documentos: ${error}"`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  private buildFullNameFromUser(user: {
+    primer_nombre?: string | null;
+    segundo_name?: string | null;
+    tercer_nombre?: string | null;
+    primer_apellido?: string | null;
+    segundo_apellido?: string | null;
+    apellido_casada?: string | null;
+  }): string {
+    return joinWithSpace(
+      user.primer_nombre,
+      user.segundo_name,
+      user.tercer_nombre,
+      user.primer_apellido,
+      user.segundo_apellido,
+      user.apellido_casada,
+    );
+  }
+
+  private buildInitialsFromFullName(fullName: string): string {
+    if (!fullName) {
+      return '';
+    }
+
+    return fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((part) => part[0]!.toUpperCase())
+      .join('');
+  }
+
+  private async mapFirmantesResumen(
+    firmantes?: Array<{
+      user?: {
+        id?: number | string | null;
+        primer_nombre?: string | null;
+        segundo_name?: string | null;
+        tercer_nombre?: string | null;
+        primer_apellido?: string | null;
+        segundo_apellido?: string | null;
+        apellido_casada?: string | null;
+        url_foto?: string | null;
+        urlFoto?: string | null;
+        // Prisma puede traer bytes aquí. Relajamos el tipo:
+        foto_perfil?: unknown;
+        nombre?: string | null;
+      } | null;
+      user_id?: number | null;
+      responsabilidad_firma?: { nombre?: string | null } | null;
+    }>,
+  ) {
+    return Promise.all(
+      (firmantes ?? []).map(async (firmante) => {
+        const user = firmante?.user ?? {};
+        const nombreBase = this.buildFullNameFromUser(user);
+        const nombre = nombreBase || joinWithSpace(user.nombre);
+        const iniciales = this.buildInitialsFromFullName(nombre);
+        const rawId = (user as any).id ?? firmante?.user_id ?? 0;
+
+        const rawFoto =
+          (user as any).url_foto ??
+          (user as any).urlFoto ??
+          (user as any).foto_perfil ??
+          null;
+        const urlFoto = await this.resolveFotoUrl(rawFoto);
+
+        return {
+          id: Number(rawId),
+          nombre,
+          iniciales,
+          urlFoto,
+          responsabilidad: firmante?.responsabilidad_firma?.nombre ?? '',
+        };
+      }),
+    );
+  }
+
+  private async resolveFotoUrl(raw: unknown): Promise<string | null> {
+    if (typeof raw !== 'string' || raw.length === 0) {
+      return null;
+    }
+    try {
+      return await resolvePhotoUrl(this.awsService, raw);
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo generar URL prefirmada para ${raw}: ${error}`,
+      );
+      return null;
+    }
+  }
+
   async getSupervisionDocumentos(paginationDto: PaginationDto) {
     try {
       const { page = 1, limit = 10 } = paginationDto;
@@ -599,7 +878,6 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               nombre: true,
             },
           },
-
         },
       });
 
@@ -607,35 +885,35 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       const totalPages = Math.ceil(totalCount / limit);
       const currentPage = Math.min(page, totalPages);
 
-      const mapped = await Promise.all(result.map(async (item) => {
-        // ? Calcula días solo si el estado no es Rechazado ni Finalizado
-        let diasTranscurridos: number | undefined = undefined;
-        const estado = item.estado_firma!.nombre?.toLowerCase();
-        if (estado !== 'rechazado' && estado !== 'finalizado') {
-          const fechaCreacion = item.add_date;
-          const hoy = new Date();
-          diasTranscurridos = Math.floor(
-            (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
-              (1000 * 60 * 60 * 24),
-          );
-        }
-        // ? Obtiene la observación más reciente del historial
-        const historial = await this.prisma.cuadro_firma_estado_historial.findFirst(
-          { 
-            where: { cuadro_firma_id: item.id },
-            orderBy: { fecha_observacion: 'desc' },
-          },
-          
-        );
+      const mapped = await Promise.all(
+        result.map(async (item) => {
+          // ? Calcula días solo si el estado no es Rechazado ni Finalizado
+          let diasTranscurridos: number | undefined = undefined;
+          const estado = item.estado_firma!.nombre?.toLowerCase();
+          if (estado !== 'rechazado' && estado !== 'finalizado') {
+            const fechaCreacion = item.add_date;
+            const hoy = new Date();
+            diasTranscurridos = Math.floor(
+              (hoy.getTime() - new Date(fechaCreacion!).getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+          }
+          // ? Obtiene la observación más reciente del historial
+          const historial =
+            await this.prisma.cuadro_firma_estado_historial.findFirst({
+              where: { cuadro_firma_id: item.id },
+              orderBy: { fecha_observacion: 'desc' },
+            });
 
-        return {
-          ...item,
-          diasTranscurridos,
-          descripcionEstado: historial?.observaciones
-        };
-      }));
+          return {
+            ...item,
+            diasTranscurridos,
+            descripcionEstado: historial?.observaciones,
+          };
+        }),
+      );
 
-      console.log({mapped})
+      console.log({ mapped });
 
       return {
         documentos: mapped,
@@ -725,5 +1003,4 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
       );
     }
   }
-
 }

@@ -12,5 +12,9 @@ export abstract class DocumentosRepository {
 
   abstract findByCuadroFirmaID(
     cuadroFirmaID: number,
-  ): Promise<{ nombre_archivo: string | null } | null>;
+  ): Promise<{ id:number, nombre_archivo: string | null, resumen: string | null } | null>;
+
+  abstract updateDocumento(documentoId: number, data: {
+    [key: string]: any;
+})
 }

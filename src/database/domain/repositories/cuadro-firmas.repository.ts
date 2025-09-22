@@ -17,6 +17,7 @@ import { UpdateEstadoAsignacionDto } from 'src/documents/dto/update-estado-asign
 import { FirmaCuadroDto } from 'src/documents/dto/firma-cuadro.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { PaginationMetaData } from '../interfaces/pagination.itnerface';
+import { ListQueryDto } from 'src/documents/dto/list-query.dto';
 
 export const CUADRO_FIRMAS_REPOSITORY = 'CUADRO_FIRMAS_REPOSITORY';
 
@@ -62,8 +63,8 @@ export abstract class CuadroFirmaRepository {
 
   abstract getHistorialCuadroFirmas(
     id: number,
-    paginationDto: PaginationDto
-  ): Promise<{ historial: HistorialCuadroFirma[], meta: PaginationMetaData}>;
+    paginationDto: PaginationDto,
+  ): Promise<{ historial: HistorialCuadroFirma[]; meta: PaginationMetaData }>;
 
   abstract agregarHistorialCuadroFirma(
     addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto,
@@ -73,8 +74,13 @@ export abstract class CuadroFirmaRepository {
     updateEstadoAsignacion: UpdateEstadoAsignacionDto,
   ): Promise<any>;
 
-  abstract getAsignacionesByUserId(userId: number, paginationDto: PaginationDto): Promise<{ asignaciones: Asignacion[], meta: PaginationMetaData}>;
-  abstract getSupervisionDocumentos(paginationDto: PaginationDto): Promise<{ documentos: any[], meta: PaginationMetaData}>;
+  abstract getAsignacionesByUserId(
+    userId: number,
+    paginationDto: PaginationDto,
+  ): Promise<{ asignaciones: Asignacion[]; meta: PaginationMetaData }>;
+  abstract getSupervisionDocumentos(
+    paginationDto: PaginationDto,
+  ): Promise<{ documentos: any[]; meta: PaginationMetaData }>;
 
   abstract validarOrdenFirma(firmaCuadroDto: FirmaCuadroDto): Promise<void>;
 
@@ -88,4 +94,8 @@ export abstract class CuadroFirmaRepository {
       [key: string]: any;
     },
   ): Promise<void>;
+
+  abstract listSupervision(q: ListQueryDto);
+
+  abstract findCuadroFirmaById( cuadroFirmaId: number ): Promise<cuadro_firma>;
 }

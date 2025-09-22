@@ -6,6 +6,8 @@ import { CUADRO_FIRMAS_REPOSITORY } from './domain/repositories/cuadro-firmas.re
 import { PrismaCuadroFirmaRepository } from './infrastructure/prisma-cuadro-firmas.repository';
 import { DOCUMENTOS_REPOSITORY } from './domain/repositories/documentos.repository';
 import { PrismaDocumentosRepository } from './infrastructure/pirsma-documentos.repository';
+import { NOTIFICACIONES_REPOSITORY } from './domain/repositories/notificaciones.repository';
+import { PrismaNotificacioensRepository } from './infrastructure/prisma-notificaciones.repository';
 
 @Module({
   imports: [PdfModule, PrismaModule, AwsModule],
@@ -18,9 +20,14 @@ import { PrismaDocumentosRepository } from './infrastructure/pirsma-documentos.r
       provide: DOCUMENTOS_REPOSITORY,
       useClass: PrismaDocumentosRepository,
     },
+    {
+      provide: NOTIFICACIONES_REPOSITORY,
+      useClass: PrismaNotificacioensRepository,
+    },
     PrismaCuadroFirmaRepository,
     PrismaDocumentosRepository,
+    PrismaNotificacioensRepository
   ],
-  exports: [CUADRO_FIRMAS_REPOSITORY, DOCUMENTOS_REPOSITORY],
+  exports: [CUADRO_FIRMAS_REPOSITORY, DOCUMENTOS_REPOSITORY, NOTIFICACIONES_REPOSITORY],
 })
 export class DatabaseModule {}

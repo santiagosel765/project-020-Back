@@ -38,7 +38,18 @@ export class PrismaDocumentosRepository implements DocumentosRepository {
       where: { cuadro_firma_id: cuadroFirmaID },
       select: {
         nombre_archivo: true,
+        id: true,
+        resumen: true,
       },
     });
+  }
+
+  updateDocumento(documentoId: number, data: { [key: string]: any }) {
+    return this.prisma.documento.update({
+      where: {
+        id: documentoId
+      },
+      data
+    })
   }
 }
