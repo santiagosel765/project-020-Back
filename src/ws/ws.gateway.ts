@@ -54,29 +54,23 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private extractUserId(client: Socket): number {
     try {
-      const tokenFromAuth = (client.handshake as any)?.auth?.token as
+      const tokenFromAuth = (client.handshake.auth as any)?.token as
         | string
         | undefined;
 
-      const cookies = this.parseCookies(client.handshake?.headers?.cookie);
-      const cookieToken = cookies['access_token'];
-
-      const token = tokenFromAuth ?? cookieToken;
+      let token = tokenFromAuth;
       if (!token) {
-        throw new WsException('Missing access token');
+        const cookies = this.parseCookies(client.handshake.headers.cookie);
+        token = cookies['access_token'];
       }
+      if (!token) throw new WsException('Missing access token');
 
       const payload = verifyJwt(token, envs.jwtAccessSecret);
       const userId = Number(payload.sub);
-      if (!userId) {
-        throw new WsException('Invalid token payload');
-      }
-
+      if (!userId) throw new WsException('Invalid token payload');
       return userId;
-    } catch (error) {
-      if (error instanceof WsException) {
-        throw error;
-      }
+    } catch (err) {
+      if (err instanceof WsException) throw err;
       throw new WsException('Unauthorized');
     }
   }
