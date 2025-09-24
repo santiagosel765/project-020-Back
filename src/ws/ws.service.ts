@@ -9,6 +9,11 @@ import {
   USERS_REPOSITORY,
   UsersRepository,
 } from 'src/database/domain/repositories/users.repository';
+import {
+  buildNotificationPayload,
+  NotificationListViewModel,
+} from 'src/documents/utils/notification.presenter';
+import { NotificationPaginationDto } from 'src/documents/dto/notification-response.dto';
 
 interface ConnectedClients {
   [id: string]: {
@@ -66,8 +71,21 @@ export class WsService {
     return Object.keys(this.connectedClients).length;
   }
 
-  async getNotificationsByUserId(userId: number) {
-    return await this.notificacionesRepository.getNotificationsByUser(userId);
+  async getNotificationsByUserId(
+    userId: number,
+    pagination: NotificationPaginationDto,
+  ): Promise<NotificationListViewModel> {
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
+    const since = pagination.since ? new Date(pagination.since) : undefined;
+
+    const { items, total } =
+      await this.notificacionesRepository.getNotificationsByUser(userId, {
+        pagination: { page, limit },
+        since,
+      });
+
+    return buildNotificationPayload(items, total, page, limit);
   }
 
   /**
@@ -84,11 +102,11 @@ export class WsService {
     for (const clientId in this.connectedClients) {
       const clientData = this.connectedClients[clientId];
       if (clientData.user.id === userId) {
-        const notifications = await this.getNotificationsByUserId(userId);
-        clientData.socket.emit('user-notifications-server', {
-          userNotifications: notifications,
-          totalNotificaciones: notifications.length,
+        const notifications = await this.getNotificationsByUserId(userId, {
+          page: 1,
+          limit: 10,
         });
+        clientData.socket.emit('user-notifications-server', notifications);
       }
     }
   }

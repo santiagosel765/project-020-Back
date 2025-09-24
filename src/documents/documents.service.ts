@@ -52,6 +52,11 @@ import {
 } from 'src/database/domain/repositories/notificaciones.repository';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
+import {
+  NotificationBulkReadDto,
+  NotificationPaginationDto,
+} from './dto/notification-response.dto';
+import { buildNotificationPayload } from './utils/notification.presenter';
 import { WsService } from 'src/ws/ws.service';
 
 @Injectable()
@@ -400,13 +405,13 @@ export class DocumentsService {
           cuadroFirmaDB.id,
         );
 
-      responsables.forEach(async (r) => {
+      for (const responsable of responsables) {
         await this.notificacionesRepository.createUserNotification(
           createdNotification.id,
-          r.user.id,
+          responsable.user.id,
         );
-        await this.wsService.emitNotificationsToUser(r.user.id);
-      });
+        await this.wsService.emitNotificationsToUser(responsable.user.id);
+      }
 
       return {
         status: HttpStatus.ACCEPTED,
@@ -513,14 +518,14 @@ export class DocumentsService {
         await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(
           +firmaCuadroDto.cuadroFirmaId,
         );
-      responsables.forEach(async (r) => {
+      for (const responsable of responsables) {
         await this.notificacionesRepository.createUserNotification(
           createdNotification.id,
-          r.user.id,
+          responsable.user.id,
         );
 
-        await this.wsService.emitNotificationsToUser(r.user.id);
-      });
+        await this.wsService.emitNotificationsToUser(responsable.user.id);
+      }
 
       await this.awsService.uploadFile(
         signedPdfBuffer!,
@@ -943,28 +948,34 @@ export class DocumentsService {
         notificacionId,
         responsables?.elabora?.userId!,
       );
-      await this.wsService.emitNotificationsToUser(responsables?.elabora?.userId!);
+      await this.wsService.emitNotificationsToUser(
+        responsables?.elabora?.userId!,
+      );
     }
-    responsables?.revisa?.forEach(async (f) => {
-      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
-      if (notificacionId) {
-        await this.notificacionesRepository.createUserNotification(
-          notificacionId,
-          f.userId,
-        );
-        await this.wsService.emitNotificationsToUser(f.userId);
+    if (responsables?.revisa) {
+      for (const firmante of responsables.revisa) {
+        await this.agregarResponsableCuadroFirma(firmante, cuadroFirmaID);
+        if (notificacionId) {
+          await this.notificacionesRepository.createUserNotification(
+            notificacionId,
+            firmante.userId,
+          );
+          await this.wsService.emitNotificationsToUser(firmante.userId);
+        }
       }
-    });
-    responsables?.aprueba?.forEach(async (f) => {
-      await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
-      if (notificacionId) {
-        await this.notificacionesRepository.createUserNotification(
-          notificacionId,
-          f.userId,
-        );
-        await this.wsService.emitNotificationsToUser(f.userId);
+    }
+    if (responsables?.aprueba) {
+      for (const firmante of responsables.aprueba) {
+        await this.agregarResponsableCuadroFirma(firmante, cuadroFirmaID);
+        if (notificacionId) {
+          await this.notificacionesRepository.createUserNotification(
+            notificacionId,
+            firmante.userId,
+          );
+          await this.wsService.emitNotificationsToUser(firmante.userId);
+        }
       }
-    });
+    }
   }
 
   async getDocumentoURLBucket(fileName: string) {
@@ -1279,13 +1290,13 @@ export class DocumentsService {
 
       const responsables =
         await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(id);
-      responsables.forEach(async (r) => {
+      for (const responsable of responsables) {
         await this.notificacionesRepository.createUserNotification(
           createdNotification.id,
-          r.user.id,
+          responsable.user.id,
         );
-        await this.wsService.emitNotificationsToUser(r.user.id);
-      });
+        await this.wsService.emitNotificationsToUser(responsable.user.id);
+      }
 
       if (!updatedCuadroFirmas) {
         throw new HttpException(
@@ -1415,13 +1426,13 @@ export class DocumentsService {
         cuadroFirmaDB.id,
       );
 
-    responsables.forEach(async (r) => {
+    for (const responsable of responsables) {
       await this.notificacionesRepository.createUserNotification(
         createdNotification.id,
-        r.user.id,
+        responsable.user.id,
       );
-      await this.wsService.emitNotificationsToUser(r.user.id);
-    });
+      await this.wsService.emitNotificationsToUser(responsable.user.id);
+    }
 
     return {
       status: HttpStatus.ACCEPTED,
@@ -1565,12 +1576,25 @@ export class DocumentsService {
     return { status: HttpStatus.OK, data: resumen };
   }
 
-  async getNotificationsByUser(userId: number) {
-    const data =
-      await this.notificacionesRepository.getNotificationsByUser(userId);
+  async getNotificationsByUser(
+    userId: number,
+    pagination: NotificationPaginationDto,
+  ) {
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
+    const since = pagination.since ? new Date(pagination.since) : undefined;
+
+    const { items, total } =
+      await this.notificacionesRepository.getNotificationsByUser(userId, {
+        pagination: { page, limit },
+        since,
+      });
+
+    const payload = buildNotificationPayload(items, total, page, limit);
     return {
       status: HttpStatus.OK,
-      data,
+      version: payload.version,
+      data: payload.data,
     };
   }
   async updateNotificationByUserId(notificationId: number, userId: number) {
@@ -1581,6 +1605,19 @@ export class DocumentsService {
     return {
       status: HttpStatus.OK,
       data: true,
+    };
+  }
+
+  async markNotificationsAsRead(bulkReadDto: NotificationBulkReadDto) {
+    const { userId, ids } = bulkReadDto;
+    const updated = await this.notificacionesRepository.markNotificationsAsRead(
+      userId,
+      ids,
+    );
+
+    return {
+      status: HttpStatus.OK,
+      data: { updated },
     };
   }
 }
