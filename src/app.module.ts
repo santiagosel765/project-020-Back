@@ -15,6 +15,7 @@ import { PaginasModule } from './paginas/paginas.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PosicionesModule } from './posiciones/posiciones.module';
 import { GerenciasModule } from './gerencias/gerencias.module';
+import { WsModule } from './ws/ws.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { GerenciasModule } from './gerencias/gerencias.module';
     AwsModule,
     PosicionesModule,
     GerenciasModule,
+    WsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -459,6 +459,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
 
       await this.agregarHistorialCuadroFirma(addHistorialCuadroFirmaDto);
 
+      // ? Desactiva cuadro de firmas si se rechaza
       if (updateEstadoAsignacion.nombreEstadoFirma === 'Rechazado') {
         await this.prisma.cuadro_firma.update({
           where: { id: updateEstadoAsignacion.idCuadroFirma },
