@@ -81,10 +81,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const errors = await validate(payload, {
       whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true,
     });
 
     if (errors.length) {
+      this.logger.warn(`Invalid WS payload: ${JSON.stringify(errors)}`);
       throw new WsException('Invalid payload');
     }
 

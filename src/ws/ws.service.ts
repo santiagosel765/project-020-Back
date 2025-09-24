@@ -13,7 +13,10 @@ import {
   buildNotificationPayload,
   NotificationListViewModel,
 } from 'src/documents/utils/notification.presenter';
-import { NotificationPaginationDto } from 'src/documents/dto/notification-response.dto';
+import {
+  NotificationPaginationDto,
+  UserNotificationsClientDto,
+} from 'src/documents/dto/notification-response.dto';
 
 interface ConnectedClients {
   [id: string]: {
@@ -73,11 +76,17 @@ export class WsService {
 
   async getNotificationsByUserId(
     userId: number,
-    pagination: NotificationPaginationDto,
+    pagination: NotificationPaginationDto | UserNotificationsClientDto,
   ): Promise<NotificationListViewModel> {
     const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
-    const since = pagination.since ? new Date(pagination.since) : undefined;
+    const rawSince = pagination.since;
+    const since =
+      rawSince instanceof Date
+        ? rawSince
+        : rawSince
+        ? new Date(rawSince)
+        : undefined;
 
     const { items, total } =
       await this.notificacionesRepository.getNotificationsByUser(userId, {

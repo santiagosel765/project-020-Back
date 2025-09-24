@@ -135,11 +135,15 @@ export class PrismaNotificacioensRepository
     userId: number,
     options: NotificationQueryOptions,
   ): Promise<NotificationQueryResult> {
-    const {
-      pagination: { page, limit },
-      since,
-    } = options;
-    const skip = Math.max(0, (page - 1) * limit);
+    const { pagination, since } = options ?? {};
+
+    const page = Number(pagination?.page ?? 1);
+    const limit = Number(pagination?.limit ?? 10);
+
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 10;
+
+    const skip = Math.max(0, (safePage - 1) * safeLimit);
     try {
       const where: Prisma.notificacion_userWhereInput = {
         user_id: userId,
@@ -158,7 +162,7 @@ export class PrismaNotificacioensRepository
             notificacion: { add_date: 'desc' },
           },
           skip,
-          take: limit,
+          take: safeLimit,
         }),
       ]);
 

@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsDate,
   IsDateString,
   IsInt,
   IsOptional,
@@ -139,10 +140,27 @@ export class NotificationBulkReadDto {
   ids?: number[];
 }
 
-export class UserNotificationsClientDto extends NotificationPaginationDto {
-  @ApiProperty({ example: NOTIFICATIONS_PAYLOAD_VERSION })
-  @Matches(/^1\.0$/)
-  version!: string;
+export class UserNotificationsClientDto {
+  @IsString()
+  version: string = NOTIFICATIONS_PAYLOAD_VERSION;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 10;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  since?: Date;
 }
 
 export class UserNotificationsServerDto extends NotificationEnvelopeDto {}
