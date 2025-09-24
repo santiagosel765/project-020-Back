@@ -52,6 +52,7 @@ import {
 } from 'src/database/domain/repositories/notificaciones.repository';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
+import { WsService } from 'src/ws/ws.service';
 
 @Injectable()
 export class DocumentsService {
@@ -73,6 +74,7 @@ export class DocumentsService {
     private readonly pdfRepository: PdfRepository,
     @Inject(PDF_GENERATION_REPOSITORY)
     private readonly pdfGeneratorRepository: PdfGenerationRepository,
+    private wsService: WsService,
     private prisma: PrismaService,
     private awsService: AWSService,
   ) {}
@@ -403,6 +405,7 @@ export class DocumentsService {
           createdNotification.id,
           r.user.id,
         );
+        await this.wsService.emitNotificationsToUser(r.user.id);
       });
 
       return {
@@ -515,6 +518,8 @@ export class DocumentsService {
           createdNotification.id,
           r.user.id,
         );
+
+        await this.wsService.emitNotificationsToUser(r.user.id);
       });
 
       await this.awsService.uploadFile(
@@ -938,6 +943,7 @@ export class DocumentsService {
         notificacionId,
         responsables?.elabora?.userId!,
       );
+      await this.wsService.emitNotificationsToUser(responsables?.elabora?.userId!);
     }
     responsables?.revisa?.forEach(async (f) => {
       await this.agregarResponsableCuadroFirma(f, cuadroFirmaID);
@@ -946,6 +952,7 @@ export class DocumentsService {
           notificacionId,
           f.userId,
         );
+        await this.wsService.emitNotificationsToUser(f.userId);
       }
     });
     responsables?.aprueba?.forEach(async (f) => {
@@ -955,6 +962,7 @@ export class DocumentsService {
           notificacionId,
           f.userId,
         );
+        await this.wsService.emitNotificationsToUser(f.userId);
       }
     });
   }
@@ -1256,6 +1264,29 @@ export class DocumentsService {
           +createCuadroFirmaDto.empresa_id,
         );
 
+      const createNotificationDto: CreateNotificationDto = {
+        titulo: `Actualización Asignación "${cuadroFirmaDB.titulo}"`,
+        contenido: `La asignación ha sido actualizada.`,
+        tipo: 'Actualización de cuadro de firmas',
+        referenciaId: cuadroFirmaDB?.id ?? 0,
+        referenciaTipo: 'Cuadro de firma',
+      };
+
+      const createdNotification =
+        await this.notificacionesRepository.createNotification(
+          createNotificationDto,
+        );
+
+      const responsables =
+        await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(id);
+      responsables.forEach(async (r) => {
+        await this.notificacionesRepository.createUserNotification(
+          createdNotification.id,
+          r.user.id,
+        );
+        await this.wsService.emitNotificationsToUser(r.user.id);
+      });
+
       if (!updatedCuadroFirmas) {
         throw new HttpException(
           `Problemas al actualizar cuadro de firmas con ID "${id}"`,
@@ -1389,6 +1420,7 @@ export class DocumentsService {
         createdNotification.id,
         r.user.id,
       );
+      await this.wsService.emitNotificationsToUser(r.user.id);
     });
 
     return {
@@ -1533,20 +1565,22 @@ export class DocumentsService {
     return { status: HttpStatus.OK, data: resumen };
   }
 
-  async getNotificationsByUser( userId: number ) {
-    const data = await this.notificacionesRepository.getNotificationsByUser( userId );
+  async getNotificationsByUser(userId: number) {
+    const data =
+      await this.notificacionesRepository.getNotificationsByUser(userId);
     return {
       status: HttpStatus.OK,
       data,
-    }
+    };
   }
-  async updateNotificationByUserId( notificationId: number, userId: number, ) {
-    
-    await this.notificacionesRepository.updateNotification( {notificationId, userId} );
+  async updateNotificationByUserId(notificationId: number, userId: number) {
+    await this.notificacionesRepository.updateNotification({
+      notificationId,
+      userId,
+    });
     return {
       status: HttpStatus.OK,
       data: true,
-    }
+    };
   }
-
 }
