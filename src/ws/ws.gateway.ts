@@ -54,17 +54,24 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private extractUserId(client: Socket): number {
     try {
-      const cookies = this.parseCookies(client.handshake.headers.cookie);
-      const accessToken = cookies['access_token'];
-      if (!accessToken) {
+      const tokenFromAuth = (client.handshake as any)?.auth?.token as
+        | string
+        | undefined;
+
+      const cookies = this.parseCookies(client.handshake?.headers?.cookie);
+      const cookieToken = cookies['access_token'];
+
+      const token = tokenFromAuth ?? cookieToken;
+      if (!token) {
         throw new WsException('Missing access token');
       }
 
-      const payload = verifyJwt(accessToken, envs.jwtAccessSecret);
+      const payload = verifyJwt(token, envs.jwtAccessSecret);
       const userId = Number(payload.sub);
       if (!userId) {
         throw new WsException('Invalid token payload');
       }
+
       return userId;
     } catch (error) {
       if (error instanceof WsException) {
@@ -113,8 +120,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('user-notifications-server', notifications);
     } catch (error) {
       this.logger.error(
-        `Error al conectar WS`,
-        error instanceof Error ? error.stack : String(error),
+        `WebSocket connection failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
       );
       client.disconnect();
     }
@@ -140,7 +149,10 @@ export class WsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('user-notifications-server', notifications);
     } catch (error) {
       this.logger.error(
-        `Error al obtener notificaciones del usuario - WS: ${error instanceof Error ? error.message : error}`,
+        `WebSocket notifications handling failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
       );
       client.disconnect(true);
     }
