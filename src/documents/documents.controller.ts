@@ -35,7 +35,14 @@ import { envs } from 'src/config/envs';
 import { AiService } from 'src/ai/ai.service';
 import type { Response } from 'express';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
+import {
+  NotificationBulkReadDto,
+  NotificationListResponseDto,
+  NotificationPaginationDto,
+} from './dto/notification-response.dto';
+import { ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Documents')
 @Controller('documents')
 export class DocumentsController {
   logger: Logger = new Logger(DocumentsController.name);
@@ -375,19 +382,54 @@ export class DocumentsController {
     );
   }
 
-  
   @Patch('cuadro-firmas/notificaciones/leer')
+  @ApiOperation({ summary: 'Marcar una notificación como leída' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        status: { type: 'number', example: 200 },
+        data: { type: 'boolean' },
+      },
+    },
+  })
   updateNotificationByUserId(
-    // @Body() updateNotificationDto: UpdateNotificationDto,
     @Body('userId', ParseIntPipe) userId: number,
     @Body('notificationId', ParseIntPipe) notificationId: number,
   ) {
-    return this.documentsService.updateNotificationByUserId(notificationId, userId);
+    return this.documentsService.updateNotificationByUserId(
+      notificationId,
+      userId,
+    );
   }
-  
+
+  @Patch('cuadro-firmas/notificaciones/leer-todas')
+  @ApiOperation({ summary: 'Marcar notificaciones como leídas' })
+  @ApiBody({ type: NotificationBulkReadDto })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        status: { type: 'number', example: 200 },
+        data: {
+          type: 'object',
+          properties: {
+            updated: { type: 'number', example: 3 },
+          },
+        },
+      },
+    },
+  })
+  markNotificationsAsRead(@Body() bulkReadDto: NotificationBulkReadDto) {
+    return this.documentsService.markNotificationsAsRead(bulkReadDto);
+  }
+
   @Get('cuadro-firmas/notificaciones/:userId')
-  getNotificationsByUser(@Param('userId', ParseIntPipe) userId: number) {
-    return this.documentsService.getNotificationsByUser(userId);
+  @ApiOperation({ summary: 'Listar notificaciones del usuario' })
+  @ApiOkResponse({ type: NotificationListResponseDto })
+  getNotificationsByUser(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Query() pagination: NotificationPaginationDto,
+  ) {
+    return this.documentsService.getNotificationsByUser(userId, pagination);
   }
   @Patch('cuadro-firmas/:id')
   updateCuadroFirmas(
@@ -401,5 +443,4 @@ export class DocumentsController {
       responsables,
     );
   }
-  
 }

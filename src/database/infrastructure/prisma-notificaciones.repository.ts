@@ -1,5 +1,10 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { NotificacionesRepository } from '../domain/repositories/notificaciones.repository';
+import { Prisma } from 'generated/prisma';
+import {
+  NotificacionesRepository,
+  NotificationQueryOptions,
+  NotificationQueryResult,
+} from '../domain/repositories/notificaciones.repository';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateNotificationDto } from 'src/documents/dto/create-notification.dto';
 import { UpdateNotificationDto } from 'src/documents/dto/update-notification.dto';
@@ -12,7 +17,7 @@ export class PrismaNotificacioensRepository
 
   async createNotification(createNotificationDto: CreateNotificationDto) {
     try {
-      const { userId, ...dataNotification } = createNotificationDto;
+      const { userId } = createNotificationDto;
 
       const createdNotification = await this.prisma.notificacion.create({
         data: {
@@ -33,7 +38,7 @@ export class PrismaNotificacioensRepository
 
       // ? Hay escenarios en las que no especifica userId
       if (userId) {
-        this.createUserNotification(createdNotification.id, userId);
+        await this.createUserNotification(createdNotification.id, userId);
       }
 
       return createdNotification;
@@ -101,7 +106,6 @@ export class PrismaNotificacioensRepository
 
   async updateNotification(updateNotificationdto: UpdateNotificationDto) {
     try {
-      console.log(updateNotificationdto)
       const { userId, notificationId } = updateNotificationdto;
 
       await this.findNotificationById(notificationId);
@@ -127,21 +131,65 @@ export class PrismaNotificacioensRepository
     }
   }
 
-  async getNotificationsByUser(userId: number) {
+  async getNotificationsByUser(
+    userId: number,
+    options: NotificationQueryOptions,
+  ): Promise<NotificationQueryResult> {
+    const {
+      pagination: { page, limit },
+      since,
+    } = options;
+    const skip = Math.max(0, (page - 1) * limit);
     try {
-      return await this.prisma.notificacion_user.findMany({
-        where: {
-          user_id: userId,
-        },
-        select: {
-          fue_leido: true,
-          fecha_leido: true,
-          notificacion: true,
-        },
-      });
+      const where: Prisma.notificacion_userWhereInput = {
+        user_id: userId,
+      };
+
+      if (since) {
+        where.notificacion = { add_date: { gt: since } };
+      }
+
+      const [total, items] = await this.prisma.$transaction([
+        this.prisma.notificacion_user.count({ where }),
+        this.prisma.notificacion_user.findMany({
+          where,
+          include: { notificacion: true },
+          orderBy: {
+            notificacion: { add_date: 'desc' },
+          },
+          skip,
+          take: limit,
+        }),
+      ]);
+
+      return { items, total };
     } catch (error) {
       throw new HttpException(
         `Problemas al consultar notificaciones para el usuario con ID: "${userId}": ${error}"`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async markNotificationsAsRead(userId: number, notificationIds?: number[]) {
+    try {
+      const where: Prisma.notificacion_userWhereInput = {
+        user_id: userId,
+      };
+
+      if (notificationIds?.length) {
+        where.notificacion_id = { in: notificationIds };
+      }
+
+      const result = await this.prisma.notificacion_user.updateMany({
+        where,
+        data: { fue_leido: true, fecha_leido: new Date() },
+      });
+
+      return result.count;
+    } catch (error) {
+      throw new HttpException(
+        `Problemas al marcar notificaciones como leídas para el usuario con ID: "${userId}": ${error}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
