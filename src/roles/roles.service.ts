@@ -20,8 +20,8 @@ import {
 export class RolesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(all = false, pagination?: PaginationDto) {
-    const where = all ? undefined : { activo: true };
+  async findAll(includeInactive = false, pagination?: PaginationDto) {
+    const where = includeInactive ? undefined : { activo: true };
     const select = {
       id: true,
       nombre: true,
@@ -29,14 +29,6 @@ export class RolesService {
       activo: true,
       add_date: true,
     } as const;
-
-    if (all) {
-      return this.prisma.rol.findMany({
-        where,
-        orderBy: { id: 'asc' },
-        select,
-      });
-    }
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
     const orderBy = stableOrder(sort);

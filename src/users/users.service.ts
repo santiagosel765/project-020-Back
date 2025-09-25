@@ -134,17 +134,8 @@ export class UsersService {
     return this.mapUser(finalUser!);
   }
 
-  async findAll(includeAll = false, pagination?: PaginationDto) {
-    const where = includeAll ? undefined : { activo: true };
-
-    if (includeAll) {
-      const users = await this.prisma.user.findMany({
-        where,
-        orderBy: { id: 'asc' },
-        select: userSummarySelect,
-      });
-      return Promise.all(users.map((user) => this.mapUser(user)));
-    }
+  async findAll(includeInactive = false, pagination?: PaginationDto) {
+    const where = includeInactive ? undefined : { activo: true };
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
     const orderBy = stableOrder(sort);
