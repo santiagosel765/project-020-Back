@@ -1443,6 +1443,7 @@ export class DocumentsService {
   private buildWhere(
     search?: string,
     estado?: string,
+    estadoId?: number,
   ): Prisma.cuadro_firmaWhereInput {
     return {
       AND: [
@@ -1455,7 +1456,11 @@ export class DocumentsService {
               ],
             }
           : {},
-        estado ? { estado_firma: { nombre: estado } } : {},
+        Number.isInteger(estadoId) && (estadoId ?? 0) > 0
+          ? { estado_firma_id: estadoId }
+          : estado
+            ? { estado_firma: { nombre: estado } }
+            : {},
       ],
     };
   }
@@ -1465,9 +1470,14 @@ export class DocumentsService {
   }
 
   async listByUser(userId: number, q: ListQueryDto) {
+    this.logger.debug(
+      `listByUser filters: estado="${q.estado ?? ''}" estadoId="${
+        q.estadoId ?? ''
+      }" search="${q.search ?? ''}"`,
+    );
     const { page, limit, sort, skip, take } = normalizePagination(q);
 
-    const whereDoc = this.buildWhere(q.search, q.estado);
+    const whereDoc = this.buildWhere(q.search, q.estado, q.estadoId);
     const where: Prisma.cuadro_firmaWhereInput = {
       AND: [whereDoc, { cuadro_firma_user: { some: { user_id: userId } } }],
     };
@@ -1523,7 +1533,7 @@ export class DocumentsService {
   }
 
   async statsSupervision(search?: string) {
-    const whereBase = this.buildWhere(search, undefined);
+    const whereBase = this.buildWhere(search);
     const estados = [
       'Pendiente',
       'En Progreso',
@@ -1547,7 +1557,7 @@ export class DocumentsService {
   }
 
   async statsByUser(userId: number, search?: string) {
-    const whereDoc = this.buildWhere(search, undefined);
+    const whereDoc = this.buildWhere(search);
     const estados = [
       'Pendiente',
       'En Progreso',

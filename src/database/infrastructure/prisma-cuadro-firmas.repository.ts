@@ -625,6 +625,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
   private buildWhere(
     search?: string,
     estado?: string,
+    estadoId?: number,
   ): Prisma.cuadro_firmaWhereInput {
     return {
       AND: [
@@ -637,16 +638,25 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
               ],
             }
           : {},
-        estado ? { estado_firma: { nombre: estado } } : {},
+        Number.isInteger(estadoId) && (estadoId ?? 0) > 0
+          ? { estado_firma_id: estadoId }
+          : estado
+            ? { estado_firma: { nombre: estado } }
+            : {},
       ],
     };
   }
 
   async listSupervision(q: ListQueryDto) {
     try {
+      this.logger.debug(
+        `listSupervision filters: estado="${q.estado ?? ''}" estadoId="${
+          q.estadoId ?? ''
+        }" search="${q.search ?? ''}"`,
+      );
       const { page, limit, sort, skip, take } = normalizePagination(q);
 
-      const where = this.buildWhere(q.search, q.estado);
+      const where = this.buildWhere(q.search, q.estado, q.estadoId);
       const orderBy = stableOrder(sort);
 
       const [total, rows] = await this.prisma.$transaction([
