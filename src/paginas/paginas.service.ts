@@ -15,15 +15,8 @@ import {
 export class PaginasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(all = false, pagination?: PaginationDto) {
-    const where = all ? undefined : { activo: true };
-
-    if (all) {
-      return this.prisma.pagina.findMany({
-        where,
-        orderBy: { id: 'asc' },
-      });
-    }
+  async findAll(includeInactive = false, pagination?: PaginationDto) {
+    const where = includeInactive ? undefined : { activo: true };
 
     const { page, limit, sort, skip, take } = normalizePagination(pagination);
     const orderBy = stableOrder(sort);

@@ -14,7 +14,7 @@ import { PaginasService } from './paginas.service';
 import { CreatePaginaDto } from './dto/create-pagina.dto';
 import { UpdatePaginaDto } from './dto/update-pagina.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PaginationDto } from 'src/shared/dto';
+import { InactiveFlagDto, PaginationDto } from 'src/shared/dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller({ path: 'paginas', version: '1' })
@@ -22,8 +22,9 @@ export class PaginasController {
   constructor(private readonly paginasService: PaginasService) {}
 
   @Get()
-  findAll(@Query() pagination: PaginationDto, @Query('all') all = '0') {
-    return this.paginasService.findAll(all === '1', pagination);
+  findAll(@Query() pagination: PaginationDto, @Query() q: InactiveFlagDto) {
+    const includeInactive = (q.includeInactive ?? q.showInactive ?? q.all) ?? false;
+    return this.paginasService.findAll(includeInactive, pagination);
   }
 
   @Post()
