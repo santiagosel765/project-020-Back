@@ -8,7 +8,7 @@ export interface NotificationViewModel {
   message: string;
   createdAt: string;
   isRead: boolean;
-  href: string | null;
+  href: string;
   icon: string | null;
 }
 
@@ -33,9 +33,41 @@ export function mapNotification(
   item: NotificationWithMetadata,
 ): NotificationViewModel {
   const { notificacion, fue_leido } = item;
-  const href = notificacion.referencia_id
-    ? `/documents/cuadro-firmas/${notificacion.referencia_id}`
-    : null;
+
+  const notificationRecord = notificacion as unknown as Record<string, unknown>;
+  const itemRecord = item as unknown as Record<string, unknown>;
+
+  const candidateIds = [
+    notificacion.referencia_id,
+    notificationRecord.cuadro_firma_id,
+    notificationRecord.documentId,
+    notificationRecord.document_id,
+    notificationRecord.targetId,
+    notificationRecord.target_id,
+    itemRecord.cuadro_firma_id,
+    itemRecord.documentId,
+    itemRecord.document_id,
+    itemRecord.targetId,
+    itemRecord.target_id,
+  ];
+
+  const directDocId = candidateIds.find((value) =>
+    typeof value === 'number' && Number.isFinite(value),
+  ) as number | undefined;
+
+  const extractIdFromHref = (href?: unknown) => {
+    if (typeof href !== 'string') {
+      return null;
+    }
+    const match = href.match(/(\d+)(?!.*\d)/);
+    return match ? Number(match[1]) : null;
+  };
+
+  const legacyHref = notificationRecord.href ?? itemRecord.href;
+
+  const docId = directDocId ?? extractIdFromHref(legacyHref);
+
+  const href = docId ? `/documento/${docId}` : '';
 
   return {
     id: notificacion.id,

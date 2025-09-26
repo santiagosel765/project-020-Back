@@ -38,10 +38,9 @@ export class NotificationItemDto {
   @ApiProperty({ example: false })
   isRead!: boolean;
 
-  @ApiProperty({ example: '/app/documents/1', nullable: true })
-  @IsOptional()
+  @ApiProperty({ example: '/documento/1' })
   @IsString()
-  href: string | null = null;
+  href!: string;
 
   @ApiProperty({ example: 'info', nullable: true })
   @IsOptional()
