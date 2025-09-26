@@ -40,7 +40,8 @@ async function bootstrap() {
   app.use(bodyParser.json({ limit: '50mb' }));
   app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-  await app.listen(envs.port ?? 3000);
+  /* await app.listen(envs.port ?? 3000); */
+  await app.listen(3200, '0.0.0.0');
   logger.log(`Server running on port ${ envs.port }`);
   if (envs.nodeEnv !== 'production') {
     const config = new DocumentBuilder()
