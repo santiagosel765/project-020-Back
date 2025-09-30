@@ -35,7 +35,10 @@ import {
 } from 'src/database/domain/repositories/documentos.repository';
 import { UpdateEstadoAsignacionDto } from './dto/update-estado-asignacion.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import {
+  PrismaClientKnownRequestError,
+  PrismaClientValidationError,
+} from '@prisma/client/runtime/library';
 import { joinWithSpace } from 'src/common/utils/strings';
 import { Prisma } from 'generated/prisma';
 import { ListQueryDto } from './dto/list-query.dto';
@@ -58,6 +61,8 @@ import {
 } from './dto/notification-response.dto';
 import { buildNotificationPayload } from './utils/notification.presenter';
 import { WsService } from 'src/ws/ws.service';
+
+const ESTADO_EN_PROGRESO = 2;
 
 @Injectable()
 export class DocumentsService {
@@ -85,12 +90,27 @@ export class DocumentsService {
   ) {}
 
   private handleDBErrors = (error: any, msg: string = '') => {
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
     if (error instanceof PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
       }
     }
-    throw new HttpException(msg, HttpStatus.INTERNAL_SERVER_ERROR);
+
+    if (error instanceof PrismaClientValidationError) {
+      throw new HttpException(
+        'Datos inválidos para la operación solicitada.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    throw new HttpException(
+      msg || 'Error interno al procesar la operación.',
+      HttpStatus.INTERNAL_SERVER_ERROR,
+    );
   };
 
   private buildFullNameFromUser(user: {
@@ -1244,6 +1264,7 @@ export class DocumentsService {
     id: number,
     updateCuadroFirmaDto: UpdateCuadroFirmaDto,
     responsables: ResponsablesFirmaDto,
+    userId: number,
   ) {
     const responsablesHydrated = await this.hydrateResponsables(responsables);
     try {
@@ -1309,8 +1330,8 @@ export class DocumentsService {
 
       const addHistorialCuadroFirmaDto: AddHistorialCuadroFirmaDto = {
         cuadroFirmaId: id,
-        estadoFirmaId: 2, // ? En Progreso
-        userId: +updateCuadroFirmaDto.createdBy!, // ? persona que actualiza el cuadro de firmas
+        estadoFirmaId: ESTADO_EN_PROGRESO,
+        userId,
         observaciones:
           updateCuadroFirmaDto.observaciones ??
           `Se ha actualizado el cuadro de firmas`,
