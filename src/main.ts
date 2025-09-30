@@ -46,8 +46,12 @@ async function bootstrap() {
   if (envs.nodeEnv !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('GenesisSign API')
+      .setDescription(
+        'Los endpoints protegidos aceptan autenticación con encabezado Authorization Bearer o la cookie de sesión access_token (__Host-access en producción).',
+      )
       .setVersion('1.0')
       .addBearerAuth()
+      .addCookieAuth('access_token')
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('docs', app, document, {

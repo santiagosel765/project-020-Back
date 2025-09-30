@@ -6,8 +6,19 @@ import type { Request } from 'express';
 
 type JwtPayload = { sub: number; email: string; roleIds?: number[] };
 
+const cookieNames = ['access_token', '__Host-access'] as const;
+
 function cookieExtractor(req: Request): string | null {
-  return (req as any)?.cookies?.access_token ?? null;
+  const cookies = (req as any)?.cookies ?? {};
+
+  for (const name of cookieNames) {
+    const value = cookies?.[name];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 @Injectable()
