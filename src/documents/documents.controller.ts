@@ -1,19 +1,22 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  ParseIntPipe,
-  UseInterceptors,
-  UploadedFiles,
-  UploadedFile,
+  HttpException,
   HttpStatus,
   Logger,
-  HttpException,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
   Query,
+  Req,
   Res,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -33,14 +36,21 @@ import { ListQueryDto } from './dto/list-query.dto';
 import { AWSService } from 'src/aws/aws.service';
 import { envs } from 'src/config/envs';
 import { AiService } from 'src/ai/ai.service';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
 import {
   NotificationBulkReadDto,
   NotificationListResponseDto,
   NotificationPaginationDto,
 } from './dto/notification-response.dto';
-import { ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 
 @ApiTags('Documents')
 @Controller('documents')
@@ -432,15 +442,32 @@ export class DocumentsController {
     return this.documentsService.getNotificationsByUser(userId, pagination);
   }
   @Patch('cuadro-firmas/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   updateCuadroFirmas(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateCuadroFirmaDto: UpdateCuadroFirmaDto,
     @Body('responsables', JsonParsePipe) responsables: ResponsablesFirmaDto,
+    @Req() req: Request & { user?: { id?: number; sub?: number } },
   ) {
+    const userIdFromJwt = req.user?.id ?? req.user?.sub;
+    const userId = updateCuadroFirmaDto.idUser ?? userIdFromJwt;
+
+    if (userId === undefined || userId === null) {
+      throw new BadRequestException('Usuario requerido para historial');
+    }
+
+    const numericUserId = Number(userId);
+
+    if (!Number.isFinite(numericUserId)) {
+      throw new BadRequestException('Usuario requerido para historial');
+    }
+
     return this.documentsService.updateCuadroFirmas(
       id,
       updateCuadroFirmaDto,
       responsables,
+      numericUserId,
     );
   }
 }
