@@ -6,9 +6,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { RolesModule } from '../roles/roles.module';
 import { AwsModule } from '../aws/aws.module';
+import { AiModule } from 'src/ai/ai.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, RolesModule, AwsModule],
+  imports: [PrismaModule, AuthModule, RolesModule, AwsModule, AiModule],
   controllers: [UsersController],
   providers: [UsersService],
 })

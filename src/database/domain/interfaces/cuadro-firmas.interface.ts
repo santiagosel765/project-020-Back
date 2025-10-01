@@ -55,6 +55,7 @@ export interface UsuarioFirmante {
   primer_apellido: string;
   segundo_apellido: string | null;
   apellido_casada: string | null;
+  telefono: string | null;
 }
 
 export interface UsuarioFirmanteCuadroFirma {

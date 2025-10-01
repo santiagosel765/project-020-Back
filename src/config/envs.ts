@@ -23,7 +23,14 @@ const envsSchema = joi
     S3_BUCKET_SECRET_KEY: joi.string().optional().allow(''),
 
     OPENAI_API_KEY: joi.string().optional().allow(''),
-    OPENAI_MODEL: joi.string().default('gpt-4o-mini'),
+    OPENAI_MODEL: joi.string().optional().allow(''),
+
+    YALO_TOKEN: joi.string().optional().allow(''),
+    YALO_HOST: joi.string().optional().allow(''),
+
+    CLIENT_HOST: joi.string().optional().allow(''),
+
+
   })
   .unknown(true);
 
@@ -58,4 +65,9 @@ export const envs = {
 
   openAiAPIKey: value.OPENAI_API_KEY,
   openAiModel: value.OPENAI_MODEL,
+
+  yaloToken: value.YALO_TOKEN,
+  yaloHost: value.YALO_HOST,
+  clientHost: value.CLIENT_HOST,
+
 };

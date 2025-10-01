@@ -63,6 +63,14 @@ import { buildNotificationPayload } from './utils/notification.presenter';
 import { WsService } from 'src/ws/ws.service';
 
 const ESTADO_EN_PROGRESO = 2;
+import { NotificationService } from 'src/notification/notification.service';
+import { formatCurrentDate } from 'src/helpers/formatDate';
+import {
+  USERS_REPOSITORY,
+  UsersRepository,
+} from 'src/database/domain/repositories/users.repository';
+import { envs } from 'src/config/envs';
+import { formatDateTime } from 'src/shared/utils/dates';
 
 @Injectable()
 export class DocumentsService {
@@ -84,9 +92,12 @@ export class DocumentsService {
     private readonly pdfRepository: PdfRepository,
     @Inject(PDF_GENERATION_REPOSITORY)
     private readonly pdfGeneratorRepository: PdfGenerationRepository,
+    @Inject(USERS_REPOSITORY)
+    private readonly usersRepository: UsersRepository,
     private wsService: WsService,
     private prisma: PrismaService,
     private awsService: AWSService,
+    private notificationService: NotificationService,
   ) {}
 
   private handleDBErrors = (error: any, msg: string = '') => {
@@ -425,12 +436,22 @@ export class DocumentsService {
           cuadroFirmaDB.id,
         );
 
+      const linkDetalleDoc = `${envs.clientHost}/documento/${cuadroFirmaDB.id}`;
+
       for (const responsable of responsables) {
         await this.notificacionesRepository.createUserNotification(
           createdNotification.id,
           responsable.user.id,
         );
         await this.wsService.emitNotificationsToUser(responsable.user.id);
+        await this.notificationService.sendDocumentUpdateNotification({
+          phone: responsable.user.telefono!,
+          responsable: `${responsable.user.primer_nombre} ${responsable.user.primer_apellido}`,
+          nombreDocumento: cuadroFirmaDB.titulo,
+          estado: 'actualizado',
+          fechaHora: formatDateTime(new Date())!,
+          documentUrl: linkDetalleDoc
+        });
       }
 
       return {
@@ -497,7 +518,7 @@ export class DocumentsService {
         observaciones: observacion,
       };
 
-      await this.prisma.cuadro_firma.update({
+      const cuadroFirmaDB = await this.prisma.cuadro_firma.update({
         where: {
           id: +firmaCuadroDto.cuadroFirmaId,
         },
@@ -545,6 +566,20 @@ export class DocumentsService {
         );
 
         await this.wsService.emitNotificationsToUser(responsable.user.id);
+        const nombreResponsable = `${responsable.user.primer_nombre} ${responsable.user.primer_apellido}`;
+
+        // ? Notifica a todos, menos al que firmó
+        const linkDetalleDoc = `${envs.clientHost}/documento/${firmaCuadroDto.cuadroFirmaId}`;
+        if (responsable.user.id != +firmaCuadroDto.userId) {
+          await this.notificationService.sendDocumentUpdateNotification({
+            phone: responsable.user.telefono!,
+            responsable: nombreResponsable,
+            nombreDocumento: cuadroFirmaDB.titulo,
+            estado: `firmado por ${firmaCuadroDto.nombreUsuario}`,
+            fechaHora: formatDateTime(new Date())!,
+            documentUrl: linkDetalleDoc
+          });
+        }
       }
 
       await this.awsService.uploadFile(
@@ -943,6 +978,7 @@ export class DocumentsService {
         responsablesHydrated,
         cuadroFirmaDB.id,
         createdNotification.id,
+        cuadroFirmaDB.titulo,
       );
 
       return cuadroFirmaDB;
@@ -954,46 +990,71 @@ export class DocumentsService {
     }
   }
 
+  private async notifyResponsable(
+    userId: number,
+    notificacionId: number | undefined,
+    cuadroFirmaTitulo: string | undefined,
+    estado: string,
+    linkDetalleDoc: string,
+  ) {
+    if (notificacionId) {
+      await this.notificacionesRepository.createUserNotification(
+        notificacionId,
+        userId,
+      );
+      await this.wsService.emitNotificationsToUser(userId);
+      const userDB = await this.usersRepository.findUserById(userId);
+      await this.notificationService.sendDocumentUpdateNotification({
+        phone: userDB.telefono!,
+        responsable: `${userDB.primer_nombre} ${userDB.primer_apellido}`,
+        nombreDocumento: cuadroFirmaTitulo!,
+        estado,
+        fechaHora: formatDateTime(new Date())!,
+        documentUrl: linkDetalleDoc
+      });
+    }
+  }
+
   async asignarResponsablesCuadroFirmas(
     responsables: ResponsablesFirmaDto,
     cuadroFirmaID: number,
     notificacionId?: number,
+    cuadroFirmaTitulo?: string,
   ) {
+    const linkDetalleDoc = `${envs.clientHost}/documento/${cuadroFirmaID}`;
     await this.agregarResponsableCuadroFirma(
       responsables?.elabora!,
       cuadroFirmaID,
     );
-    if (notificacionId) {
-      await this.notificacionesRepository.createUserNotification(
-        notificacionId,
-        responsables?.elabora?.userId!,
-      );
-      await this.wsService.emitNotificationsToUser(
-        responsables?.elabora?.userId!,
-      );
-    }
+    await this.notifyResponsable(
+      responsables.elabora?.userId!,
+      notificacionId,
+      cuadroFirmaTitulo,
+      'generado',
+      linkDetalleDoc,
+    );
     if (responsables?.revisa) {
       for (const firmante of responsables.revisa) {
         await this.agregarResponsableCuadroFirma(firmante, cuadroFirmaID);
-        if (notificacionId) {
-          await this.notificacionesRepository.createUserNotification(
-            notificacionId,
-            firmante.userId,
-          );
-          await this.wsService.emitNotificationsToUser(firmante.userId);
-        }
+        await this.notifyResponsable(
+          firmante.userId!,
+          notificacionId,
+          cuadroFirmaTitulo,
+          'generado',
+          linkDetalleDoc,
+        );
       }
     }
     if (responsables?.aprueba) {
       for (const firmante of responsables.aprueba) {
         await this.agregarResponsableCuadroFirma(firmante, cuadroFirmaID);
-        if (notificacionId) {
-          await this.notificacionesRepository.createUserNotification(
-            notificacionId,
-            firmante.userId,
-          );
-          await this.wsService.emitNotificationsToUser(firmante.userId);
-        }
+        await this.notifyResponsable(
+          firmante.userId,
+          notificacionId,
+          cuadroFirmaTitulo,
+          'generado',
+          linkDetalleDoc,
+        );
       }
     }
   }
@@ -1311,12 +1372,22 @@ export class DocumentsService {
 
       const responsables =
         await this.cuadroFirmasRepository.getUsuariosFirmantesCuadroFirmas(id);
+
+      const linkDetalleDoc = `${envs.clientHost}/documento/${cuadroFirmaDB.id}`;
       for (const responsable of responsables) {
         await this.notificacionesRepository.createUserNotification(
           createdNotification.id,
           responsable.user.id,
         );
         await this.wsService.emitNotificationsToUser(responsable.user.id);
+        await this.notificationService.sendDocumentUpdateNotification({
+          phone: responsable.user.telefono!,
+          responsable: `${responsable.user.primer_nombre} ${responsable.user.primer_apellido}`,
+          nombreDocumento: cuadroFirmaDB.titulo,
+          estado: 'actualizado',
+          fechaHora: formatDateTime(new Date())!,
+          documentUrl: linkDetalleDoc
+        });
       }
 
       if (!updatedCuadroFirmas) {
@@ -1447,12 +1518,21 @@ export class DocumentsService {
         cuadroFirmaDB.id,
       );
 
+    const linkDetalleDoc = `${envs.clientHost}/documento/${cuadroFirmaDB.id}`;
     for (const responsable of responsables) {
       await this.notificacionesRepository.createUserNotification(
         createdNotification.id,
         responsable.user.id,
       );
       await this.wsService.emitNotificationsToUser(responsable.user.id);
+      await this.notificationService.sendDocumentUpdateNotification({
+        phone: responsable.user.telefono!,
+        responsable: `${responsable.user.primer_nombre} ${responsable.user.primer_apellido}`,
+        nombreDocumento: cuadroFirmaDB.titulo,
+        estado: `trasladado al estado "${updateEstadoAsignacionDto.nombreEstadoFirma}"`,
+        fechaHora: formatDateTime(new Date())!,
+        documentUrl: linkDetalleDoc
+      });
     }
 
     return {
