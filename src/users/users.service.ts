@@ -25,6 +25,7 @@ import {
   normalizePagination,
   stableOrder,
 } from 'src/shared/utils/pagination';
+import { AiService } from 'src/ai/ai.service';
 
 const userSummarySelect = {
   id: true,
@@ -81,6 +82,7 @@ export class UsersService {
     private prisma: PrismaService,
     private rolesService: RolesService,
     private awsService: AWSService,
+    private aiService: AiService,
   ) {}
 
   async create(
@@ -164,7 +166,7 @@ export class UsersService {
       total,
       count: total,
       firstId: users[0]?.id ?? null,
-      lastId: users.length > 0 ? users[users.length - 1]?.id ?? null : null,
+      lastId: users.length > 0 ? (users[users.length - 1]?.id ?? null) : null,
       returned: users.length,
     });
 
@@ -425,6 +427,14 @@ export class UsersService {
           HttpStatus.BAD_REQUEST,
         );
       }
+      const { isSignature, message } = await this.aiService.processVision(
+        file.buffer.toString('base64'),
+      );
+
+      if (!isSignature) {
+        throw new HttpException(message!, HttpStatus.BAD_REQUEST);
+      }
+
       buffer = file.buffer;
       contentType = file.mimetype;
     } else if (dto?.dataUrl) {
@@ -437,6 +447,15 @@ export class UsersService {
           HttpStatus.BAD_REQUEST,
         );
       }
+
+      const { isSignature, message } = await this.aiService.processVision(
+        matches[2],
+      );
+
+      if (!isSignature) {
+        throw new HttpException(message!, HttpStatus.BAD_REQUEST);
+      }
+
       contentType = matches[1];
       buffer = Buffer.from(matches[2], 'base64');
       if (buffer.length > 2 * 1024 * 1024) {

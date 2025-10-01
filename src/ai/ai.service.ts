@@ -12,4 +12,8 @@ export class AiService {
   summarizePDF(pdfContent: string) {
     return this.openai.summarizePDF(pdfContent);
   }
+
+  processVision(base64Image: string) {
+    return this.openai.processVision(base64Image);
+  }
 }

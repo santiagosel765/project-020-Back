@@ -17,6 +17,10 @@ import { PosicionesModule } from './posiciones/posiciones.module';
 import { GerenciasModule } from './gerencias/gerencias.module';
 import { EmpresasModule } from './empresas/empresas.module';
 import { WsModule } from './ws/ws.module';
+import { NotificationService } from './notification/notification.service';
+import { NotificationModule } from './notification/notification.module';
+
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -40,6 +44,8 @@ import { WsModule } from './ws/ws.module';
     GerenciasModule,
     EmpresasModule,
     WsModule,
+    NotificationModule,
+    HttpModule
   ],
   controllers: [AppController],
   providers: [
@@ -48,6 +54,7 @@ import { WsModule } from './ws/ws.module';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    NotificationService,
   ],
 })
 export class AppModule {}

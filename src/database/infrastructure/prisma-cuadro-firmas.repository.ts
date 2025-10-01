@@ -353,6 +353,7 @@ export class PrismaCuadroFirmaRepository implements CuadroFirmaRepository {
             apellido_casada: true,
             correo_institucional: true,
             url_foto: true,
+            telefono: true,
           },
         },
         responsabilidad_firma: {

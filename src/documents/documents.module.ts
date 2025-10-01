@@ -7,9 +7,18 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { AwsModule } from 'src/aws/aws.module';
 import { DatabaseModule } from 'src/database/database.module';
 import { WsModule } from 'src/ws/ws.module';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
-  imports: [PdfModule, AiModule, PrismaModule, AwsModule, DatabaseModule, WsModule],
+  imports: [
+    PdfModule,
+    AiModule,
+    PrismaModule,
+    AwsModule,
+    DatabaseModule,
+    WsModule,
+    NotificationModule,
+  ],
   controllers: [DocumentsController],
   providers: [DocumentsService],
 })
