@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { isAxiosError } from 'axios';
 import { envs } from 'src/config/envs';
 import { firstValueFrom } from 'rxjs';
 import { YaloDocumentNotificationPayload } from './interface/yalo-notification.interface';
@@ -32,7 +33,7 @@ export class NotificationService {
                   index: 0,
                   parameters: [
                     {
-                        text: documentNotificationDto.documentUrl
+                      text: documentNotificationDto.documentUrl,
                     }
                   ],
                 },
@@ -41,7 +42,6 @@ export class NotificationService {
           },
         ],
       };
-      console.log(payload);
       const response = await firstValueFrom(
         this.httpService.post(envs.yaloHost, payload, {
           headers: {
@@ -50,10 +50,20 @@ export class NotificationService {
           },
         }),
       );
-      this.logger.log(`Notifiación enviada: ${response}`);
-    } catch (error) {
-      this.logger.error(`Error enviando notificación: ${error}`);
-      throw new Error(error);
+      this.logger.log(`Notificación enviada: status=${response.status}`);
+      return response.data;
+    } catch (error: unknown) {
+      if (isAxiosError(error)) {
+        const status = error.response?.status ?? 'unknown';
+        this.logger.error(
+          `Error enviando notificación: status=${status}, message=${error.message}`,
+        );
+      } else if (error instanceof Error) {
+        this.logger.error(`Error enviando notificación: ${error.message}`);
+      } else {
+        this.logger.error('Error enviando notificación: error desconocido');
+      }
+      throw error;
     }
   }
 }

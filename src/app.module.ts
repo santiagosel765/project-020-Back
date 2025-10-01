@@ -19,7 +19,6 @@ import { EmpresasModule } from './empresas/empresas.module';
 import { WsModule } from './ws/ws.module';
 import { NotificationService } from './notification/notification.service';
 import { NotificationModule } from './notification/notification.module';
-
 import { HttpModule } from '@nestjs/axios';
 
 @Module({
@@ -45,7 +44,10 @@ import { HttpModule } from '@nestjs/axios';
     EmpresasModule,
     WsModule,
     NotificationModule,
-    HttpModule
+    HttpModule.register({
+      timeout: 10_000,
+      maxRedirects: 5,
+    }),
   ],
   controllers: [AppController],
   providers: [
