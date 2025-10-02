@@ -62,6 +62,11 @@ export class UsersController {
     return this.usersService.updateSignature(+req.user.sub, file, dto);
   }
 
+  @Get('signatures/:id')
+  findSignaturesByUser(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.findSignaturesByUser(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.findOne(id);
