@@ -6,6 +6,7 @@ import {
   ConflictException,
   NotFoundException,
   ForbiddenException,
+  Inject,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -26,6 +27,8 @@ import {
   stableOrder,
 } from 'src/shared/utils/pagination';
 import { AiService } from 'src/ai/ai.service';
+import { USERS_REPOSITORY, UsersRepository } from 'src/database/domain/repositories/users.repository';
+import { formatCurrentDateTime } from 'src/helpers/formatDate';
 
 const userSummarySelect = {
   id: true,
@@ -83,6 +86,8 @@ export class UsersService {
     private rolesService: RolesService,
     private awsService: AWSService,
     private aiService: AiService,
+    @Inject(USERS_REPOSITORY)
+    private readonly usersRepository: UsersRepository,
   ) {}
 
   async create(
@@ -183,7 +188,17 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-    return this.mapUser(user);
+
+    const firmaUser = await this.usersRepository.findFirmaUser(id);
+
+
+    return {...this.mapUser(user) };
+  }
+
+  async findSignaturesByUser(id: number) {
+    const signatures = await this.usersRepository.getHistorialFirmasUser(id);
+    // ?
+    return signatures;
   }
 
   async update(
@@ -376,22 +391,30 @@ export class UsersService {
       throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
     }
 
+    const firmaUser = await this.usersRepository.findFirmaUser(id);
+
+    
+
     const [pages, roles] = await Promise.all([
       this.rolesService.getPagesForUser(user.id),
       this.rolesService.getRoleNamesForUser(user.id),
     ]);
 
-    const fileKey = `${envs.bucketSignaturesPrefix}/${id}/current.png`;
-    const exists = await this.awsService.checkFileAvailabilityInBucket(fileKey);
-
+    // const fileKey = `${envs.bucketSignaturesPrefix}/${id}/current.png`;
+    let exists: boolean = false;
     let url: string | null = null;
-    if (exists) {
-      const presigned = await this.awsService.getPresignedURLByKey(
-        fileKey,
-        'image/png',
-      );
-      url = presigned.data;
+    if( typeof firmaUser === 'object' ) {
+      exists = await this.awsService.checkFileAvailabilityInBucket(firmaUser.file_key);
+      if (exists) {
+        const presigned = await this.awsService.getPresignedURLByKey(
+          firmaUser.file_key,
+          'image/png',
+        );
+        url = presigned.data;
+      }
+
     }
+
 
     const avatarUrl = await this.resolvePhotoUrl(user.url_foto ?? null);
 
@@ -471,7 +494,9 @@ export class UsersService {
       );
     }
 
-    const fileKey = `${envs.bucketSignaturesPrefix}/${userId}/current.png`;
+    const fileKey = `${envs.bucketSignaturesPrefix}/${userId}/firma_${formatCurrentDateTime()}.png`;
+    await this.usersRepository.createFirmaUser(userId, fileKey);
+
     await this.awsService.uploadFile(buffer, 'signature', 'png', {
       customKey: fileKey,
       contentType: contentType ?? 'image/png',
@@ -480,6 +505,7 @@ export class UsersService {
       fileKey,
       'image/png',
     );
+    
     return {
       status: 'success',
       data: {

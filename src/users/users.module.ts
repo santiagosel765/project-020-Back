@@ -7,9 +7,10 @@ import { AuthModule } from '../auth/auth.module';
 import { RolesModule } from '../roles/roles.module';
 import { AwsModule } from '../aws/aws.module';
 import { AiModule } from 'src/ai/ai.module';
+import { DatabaseModule } from 'src/database/database.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, RolesModule, AwsModule, AiModule],
+  imports: [PrismaModule, AuthModule, RolesModule, AwsModule, AiModule, DatabaseModule],
   controllers: [UsersController],
   providers: [UsersService],
 })

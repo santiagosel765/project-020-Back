@@ -37,10 +37,10 @@ const SIG_Y_NUDGE   = 3;   // + sube la firma unos pt
 const DATE_Y_NUDGE  = 6;   // + sube la fecha lo mismo que la firma
 const DATE_RIGHT_MARGIN = -2; // margen derecho para la fecha (más chico = más a la derecha)
 
-const DATE_BG_PAD_X = 3;          // grosor lateral del fondo
-const DATE_BG_PAD_Y = 2;          // grosor vertical del fondo
-const DATE_BG_EXTRA_RIGHT = 2;   // "cola" extra hacia la derecha
-const DATE_BG_BORDER_M = 0.75;    // margen interior para no tapar la línea del borde
+const DATE_BG_PAD_X = 8;          // grosor lateral del fondo
+const DATE_BG_PAD_Y = 3;          // grosor vertical del fondo
+const DATE_BG_EXTRA_RIGHT = 5;   // "cola" extra hacia la derecha
+const DATE_BG_BORDER_M = 1;    // margen interior para no tapar la línea del borde
 
 // ? Basado en la doc: https://pdf-lib.js.org/ - Ejemplo Fill Form
 @Injectable()
@@ -282,7 +282,8 @@ export class PdfLibRepository implements PdfRepository {
       if (DRAW_DATE_BACKGROUND) {
         const tw = font.widthOfTextAtSize(dateValue, fontSize);
 
-        const bgX = Math.max(dateX + DATE_BG_BORDER_M, textX - DATE_BG_PAD_X);
+        // const bgX = Math.max(dateX + DATE_BG_BORDER_M, textX - DATE_BG_PAD_X);
+        const bgX = Math.max(dateX + DATE_BG_BORDER_M, textX - DATE_BG_PAD_X - 8); // mueve 4pt a la izquierda
         const bgW = Math.min(
           dateWidth - DATE_BG_BORDER_M * 2,
           tw + DATE_BG_PAD_X * 2 + DATE_BG_EXTRA_RIGHT
