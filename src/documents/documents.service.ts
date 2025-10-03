@@ -71,6 +71,7 @@ import {
 } from 'src/database/domain/repositories/users.repository';
 import { envs } from 'src/config/envs';
 import { formatDateTime } from 'src/shared/utils/dates';
+import { AiService } from 'src/ai/ai.service';
 
 @Injectable()
 export class DocumentsService {
@@ -98,6 +99,7 @@ export class DocumentsService {
     private prisma: PrismaService,
     private awsService: AWSService,
     private notificationService: NotificationService,
+    private aiService: AiService,
   ) {}
 
   private handleDBErrors = (error: any, msg: string = '') => {
@@ -450,7 +452,7 @@ export class DocumentsService {
           nombreDocumento: cuadroFirmaDB.titulo,
           estado: 'actualizado',
           fechaHora: formatDateTime(new Date())!,
-          documentUrl: linkDetalleDoc
+          documentUrl: linkDetalleDoc,
         });
       }
 
@@ -577,7 +579,7 @@ export class DocumentsService {
             nombreDocumento: cuadroFirmaDB.titulo,
             estado: `firmado por ${firmaCuadroDto.nombreUsuario}`,
             fechaHora: formatDateTime(new Date())!,
-            documentUrl: linkDetalleDoc
+            documentUrl: linkDetalleDoc,
           });
         }
       }
@@ -1010,7 +1012,7 @@ export class DocumentsService {
         nombreDocumento: cuadroFirmaTitulo!,
         estado,
         fechaHora: formatDateTime(new Date())!,
-        documentUrl: linkDetalleDoc
+        documentUrl: linkDetalleDoc,
       });
     }
   }
@@ -1386,7 +1388,7 @@ export class DocumentsService {
           nombreDocumento: cuadroFirmaDB.titulo,
           estado: 'actualizado',
           fechaHora: formatDateTime(new Date())!,
-          documentUrl: linkDetalleDoc
+          documentUrl: linkDetalleDoc,
         });
       }
 
@@ -1531,7 +1533,7 @@ export class DocumentsService {
         nombreDocumento: cuadroFirmaDB.titulo,
         estado: `trasladado al estado "${updateEstadoAsignacionDto.nombreEstadoFirma}"`,
         fechaHora: formatDateTime(new Date())!,
-        documentUrl: linkDetalleDoc
+        documentUrl: linkDetalleDoc,
       });
     }
 
@@ -1730,5 +1732,61 @@ export class DocumentsService {
       status: HttpStatus.OK,
       data: { updated },
     };
+  }
+
+  // src/documents/documents.service.ts
+  async startChatWithDocument(
+    userId: number,
+    cuadroFirmaId: number,
+  ): Promise<{ sessionId: string }> {
+    // Extrae el texto del PDF solo UNA vez
+    const pdfContent = await this.extractPDFContent(cuadroFirmaId);
+
+    // Crea una nueva sesión de chat
+    const sessionId = await this.aiService.createChatSession(
+      userId,
+      cuadroFirmaId,
+      pdfContent,
+    );
+
+    return { sessionId };
+  }
+
+  async chatWithDocument(
+    sessionId: string,
+    userMessage: string,
+  ): Promise<AsyncIterable<unknown>> {
+    const { stream } = await this.aiService.chatWithDocument(
+      sessionId,
+      userMessage,
+    );
+    return stream;
+  }
+
+  async updateChatSessionWithResponse(
+    sessionId: string,
+    assistantResponse: string,
+  ): Promise<void> {
+    await this.aiService.updateSessionWithAssistantResponse(
+      sessionId,
+      assistantResponse,
+    );
+  }
+
+  // Métodos adicionales de gestión que puedes agregar si los necesitas
+  getUserChatSessions(userId: number) {
+    return this.aiService.getUserSessions(userId);
+  }
+
+  getChatSession(sessionId: string) {
+    return this.aiService.getSession(sessionId);
+  }
+
+  deleteChatSession(sessionId: string): boolean {
+    return this.aiService.deleteSession(sessionId);
+  }
+
+  getActiveChatSessions(): number {
+    return this.aiService.getActiveSessions();
   }
 }

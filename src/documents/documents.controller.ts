@@ -17,6 +17,8 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
+  Delete,
+  Request as NestRequest,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -469,5 +471,71 @@ export class DocumentsController {
       responsables,
       numericUserId,
     );
+  }
+
+  @Post('ai/chat/start/:cuadroFirmaId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async startChatWithDocument(
+    @Param('cuadroFirmaId', ParseIntPipe) cuadroFirmaId: number,
+    @NestRequest() req,
+  ) {
+    const userId = req.user.sub;
+    return await this.documentsService.startChatWithDocument(
+      userId,
+      cuadroFirmaId,
+    );
+  }
+
+  @Post('ai/chat/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async chatWithDocument(
+    @Param('sessionId') sessionId: string,
+    @Body() { message }: { message: string },
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.status(HttpStatus.OK);
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
+
+    const stream = await this.documentsService.chatWithDocument(
+      sessionId,
+      message,
+    );
+
+    let assistantResponse = '';
+    for await (const chunk of stream) {
+      const safeChunk = chunk as { delta?: string };
+      const piece = safeChunk.delta ?? '';
+      assistantResponse += piece;
+      res.write(piece);
+    }
+
+    // Actualizar la sesión con la respuesta completa
+    await this.documentsService.updateChatSessionWithResponse(
+      sessionId,
+      assistantResponse,
+    );
+
+    res.end();
+  }
+
+  @Get('ai/chat/sessions/:userId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async getUserSessions(@Param('userId', ParseIntPipe) userId: number) {
+    return this.documentsService.getUserChatSessions(userId);
+  }
+
+  @Delete('ai/chat/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async deleteSession(@Param('sessionId') sessionId: string) {
+    const deleted = this.documentsService.deleteChatSession(sessionId);
+    return { deleted };
   }
 }
